@@ -14,8 +14,10 @@ Vetorização ESTRITA (numpy): nenhum loop `for` percorre os cenários. Uma úni
 matriz `(passos_uteis, num_simulacoes)` é gerada de uma vez — 10.000 trajetórias
 de uma opção de ~30 dias rodam em ~0,01 s.
 
-GBM (sob medida risk-neutral, drift = taxa livre de risco):
-    S_t = S_{t-1} · exp( (r − ½σ²)·dt + σ·√dt·Z )
+GBM:  S_t = S_{t-1} · exp( (μ − ½σ²)·dt + σ·√dt·Z )
+  • Oportunidade (Radar): μ = Selic (risk-neutral) — probabilidade de lucro.
+  • Risco (Escudo): μ = 0 por padrão (conservador) — não se assume alta ao medir
+    risco de margem; configurável (ex.: tendência real do ativo).
 
 Os métodos públicos devolvem DICIONÁRIOS ESTRUTURADOS, prontos para virar o JSON
 da coluna CONTEXT da aba LOGS (SERVICE="MONTE_CARLO").
@@ -58,16 +60,19 @@ class MonteCarloEngine:
         return int(int(dte) * (DIAS_UTEIS_ANO / 365.0))
 
     # ---- núcleo vetorizado ------------------------------------------------
-    def _generate_paths(self, spot: float, sigma: float, dte_uteis: int) -> np.ndarray:
+    def _generate_paths(self, spot: float, sigma: float, dte_uteis: int,
+                        drift: float | None = None) -> np.ndarray:
         """Matriz 2D `(dte_uteis, num_simulations)` de preços diários simulados.
 
         Tudo vetorizado: gera a matriz de choques Z de uma vez, calcula o expoente
         diário, soma ao longo do TEMPO (`np.cumsum(axis=0)`) e aplica `np.exp`.
-        Cada COLUNA é uma trajetória completa; cada LINHA é um dia."""
+        Cada COLUNA é uma trajetória completa; cada LINHA é um dia. `drift` sobrepõe
+        a Selic (ex.: 0 para avaliar RISCO de forma conservadora)."""
+        mu = self.risk_free_rate if drift is None else float(drift)
         rng = np.random.default_rng(self.seed)        # Generator moderno (seedável)
         z = rng.standard_normal((dte_uteis, self.num_simulations))   # (passos, cenários)
-        # Expoente diário do GBM: (r − ½σ²)dt  +  σ√dt·Z
-        incremento = (self.risk_free_rate - 0.5 * sigma ** 2) * DT + sigma * np.sqrt(DT) * z
+        # Expoente diário do GBM: (μ − ½σ²)dt  +  σ√dt·Z
+        incremento = (mu - 0.5 * sigma ** 2) * DT + sigma * np.sqrt(DT) * z
         log_retorno_acumulado = np.cumsum(incremento, axis=0)        # soma no eixo do tempo
         return spot * np.exp(log_retorno_acumulado)                  # (passos, cenários)
 
@@ -86,14 +91,17 @@ class MonteCarloEngine:
 
     # ---- MÓDULO 1: ESCUDO (risco de trajetória) ---------------------------
     def check_active_risk(self, spot: float, strike: float, dte: int, iv: float,
-                          is_put: bool = True, ticker: str = "", option_ticker: str = "") -> dict:
+                          is_put: bool = True, ticker: str = "", option_ticker: str = "",
+                          drift: float = 0.0) -> dict:
         """Risco PATH-DEPENDENT de uma posição vendida (defesa).
 
         Simula a trajetória inteira e mede em quantos cenários o preço ENCOSTOU no
         strike (PUT: fundo < strike; CALL: topo > strike). Acima de 15% -> CRITICAL.
-        """
+
+        `drift` padrão **0** (conservador): para avaliar RISCO de margem não se
+        assume que a ação sobe pela Selic. Configurável (ex.: tendência real)."""
         sigma, dte_uteis = self._preparar(spot, strike, dte, iv)
-        paths = self._generate_paths(spot, sigma, dte_uteis)
+        paths = self._generate_paths(spot, sigma, dte_uteis, drift=drift)
         if is_put:
             extremos = np.min(paths, axis=0)          # menor preço de cada trajetória
             tocou_itm = extremos < strike
@@ -113,13 +121,15 @@ class MonteCarloEngine:
 
     # ---- MÓDULO 2: RADAR (risco terminal) ---------------------------------
     def evaluate_opportunity(self, spot: float, strike: float, dte: int, iv: float,
-                             is_put: bool = True, ticker: str = "", option_ticker: str = "") -> dict:
+                             is_put: bool = True, ticker: str = "", option_ticker: str = "",
+                             drift: float | None = None) -> dict:
         """Risco TERMINAL de uma nova venda (ataque).
 
         Olha SÓ o último dia da simulação. PUT aprovada se a prob. de terminar ITM
-        (S_T < strike) for estritamente < 10% (90%+ de chance de virar pó)."""
+        (S_T < strike) for estritamente < 10% (90%+ de chance de virar pó). `drift`
+        padrão = Selic (risk-neutral, adequado p/ probabilidade de lucro)."""
         sigma, dte_uteis = self._preparar(spot, strike, dte, iv)
-        paths = self._generate_paths(spot, sigma, dte_uteis)
+        paths = self._generate_paths(spot, sigma, dte_uteis, drift=drift)
         terminal = paths[-1, :]                        # último dia de cada trajetória
         itm = terminal < strike if is_put else terminal > strike
         prob_terminal = float(np.mean(itm))

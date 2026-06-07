@@ -39,10 +39,18 @@ def test_classificacao_radar_e_escudo(engine, nome, spot, strike, dte, iv, is_pu
 
 
 def test_toque_nunca_menor_que_terminal(engine):
-    """Tocar o strike na trajetória é sempre ≥ terminar ITM (o fundo inclui o fim)."""
-    risk = engine.check_active_risk(100, 95, 40, 0.45, is_put=True)
-    op = engine.evaluate_opportunity(100, 95, 40, 0.45, is_put=True)
+    """Tocar o strike na trajetória é sempre ≥ terminar ITM (o fundo inclui o fim).
+    Comparação no MESMO drift para ser apples-to-apples."""
+    risk = engine.check_active_risk(100, 95, 40, 0.45, is_put=True, drift=0.0)
+    op = engine.evaluate_opportunity(100, 95, 40, 0.45, is_put=True, drift=0.0)
     assert risk["poe_mc_gate"] >= op["poe_mc_terminal"]
+
+
+def test_risco_drift_zero_e_mais_conservador_que_selic(engine):
+    """Para uma PUT vendida, drift 0 (sem assumir alta) dá MAIS toque que a Selic."""
+    com_selic = engine.check_active_risk(100, 96, 40, 0.45, drift=0.105)["poe_mc_gate"]
+    com_zero = engine.check_active_risk(100, 96, 40, 0.45, drift=0.0)["poe_mc_gate"]
+    assert com_zero >= com_selic
 
 
 def test_generate_paths_e_2d_e_vetorizado(engine):
