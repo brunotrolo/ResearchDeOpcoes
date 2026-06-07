@@ -137,9 +137,9 @@ def _escudo_card(a: dict) -> str:
         ("Nocional", _brl(a.get("notional"))),
     ]
     coment = ""
-    if a.get("comentario"):
+    if a.get("analise"):
         coment = (f"<tr><td style='padding:8px 14px;background:#eff6ff;border-top:1px solid #eee'>"
-                  f"📝 <b>Sua nota:</b> {a['comentario']}</td></tr>")
+                  f"🔎 <b>Análise:</b> {a['analise']}</td></tr>")
     return (
         f"<table width='100%' style='border-collapse:collapse;margin:0 0 14px;background:#fff;"
         f"border:1px solid #e5e7eb;border-left:5px solid {cor}'>"
@@ -176,7 +176,7 @@ def send_escudo_alert(alerts: list[dict]) -> bool:
             f"  Strike {_brl(a.get('strike'))} | Spot {_brl(a.get('spot'))} ({_pct(a.get('dist_pct'),1)}) | "
             f"Prêmio {_brl(a.get('entry_price'))}→{_brl(a.get('last_premium'))} | Δ {_num(a.get('delta'),2)} | "
             f"L/P {_brl(a.get('pl_value'))} ({_pct(a.get('pl_pct'))})\n  → {a.get('acao_sugerida','')}"
-            + (f"\n  📝 {a['comentario']}" if a.get("comentario") else ""))
+            + (f"\n  🔎 {a['analise']}" if a.get("analise") else ""))
     text = "🚨 DEFESA DE POSIÇÕES\n\n" + "\n\n".join(linhas) + "\n\n— motor ResearchDeOpcoes"
     return _send(subject, html, text)
 

@@ -45,6 +45,34 @@ def _acao(moneyness: str, nivel: str) -> str:
     return "Acompanhar (vigiar moneyness/DTE)"
 
 
+def analise(a: dict) -> str:
+    """Conclusão textual gerada pelo MOTOR para a operação (vai ao e-mail e ao painel)."""
+    if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
+        return a.get("descricao", "")
+    otype, side, m = a.get("option_type", ""), a.get("side", ""), a.get("moneyness", "")
+    tipo = f"{otype} {'vendida' if side == 'VENDA' else 'comprada'}".strip()
+    p = [f"{tipo} {m}".strip()]
+    if a.get("dte") is not None:
+        p.append(f"{a['dte']} dias até o vencimento")
+    if a.get("delta") is not None:
+        p.append(f"Δ {a['delta']:.2f}".replace(".", ","))
+    if a.get("poe") is not None:
+        p.append(f"POE {a['poe'] * 100:.0f}%")
+    frase = ", ".join(p) + "."
+    sinais = []
+    if a.get("buyback_mult") is not None and a["buyback_mult"] >= 1.5:
+        sinais.append(f"recompra já a {a['buyback_mult']:.1f}x o prêmio".replace(".", ","))
+    if a.get("pl_pct") is not None and a["pl_pct"] <= -50:
+        sinais.append(f"P/L aberto {a['pl_pct']:.0f}%".replace(".", ","))
+    if a.get("gamma") is not None and a["gamma"] >= 0.05:
+        sinais.append("gamma alto (aceleração)")
+    if sinais:
+        frase += " " + "; ".join(sinais) + "."
+    if a.get("acao_sugerida"):
+        frase += f" → {a['acao_sugerida']}."
+    return frase
+
+
 def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     moneyness = parsing.to_upper(row.get("moneyness"))
     delta = row.get("delta")
@@ -164,7 +192,6 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         "nivel": nivel,
         "motivo": "+".join(motivos),
         "acao_sugerida": _acao(moneyness, nivel),
-        "comentario": None,
     }
 
 
@@ -201,6 +228,7 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
         record = {k: (None if (isinstance(v, float) and pd.isna(v)) else v) for k, v in row.items()}
         result = _classify(record, cfg, today)
         if result is not None:
+            result["analise"] = analise(result)
             alerts.append(result)
 
     alerts.sort(key=lambda a: (_NIVEL_RANK[a["nivel"]], -(a.get("pl_value") or 0)), reverse=True)
@@ -219,7 +247,7 @@ def _portfolio_alert(key: str, motivo: str, nivel: str, descricao: str, acao: st
         "strike": None, "spot": None, "delta": None, "gamma": None, "poe": None,
         "entry_price": None, "last_premium": None, "buyback_mult": None,
         "pl_value": None, "loss_ratio": None, "nivel": nivel, "motivo": motivo,
-        "descricao": descricao, "acao_sugerida": acao,
+        "descricao": descricao, "acao_sugerida": acao, "analise": descricao,
     }
     base.update(extra)
     return base

@@ -142,13 +142,17 @@ recomendações**, **suas anotações** e uma **tabela de LOGS** — e um
 **não bater ponto durante o pregão** (ou seja, parou). Deploy no topo do arquivo.
 
 **E-mails em cards:** o Escudo manda **um card por operação** que precisa de
-ação (com spot, strike, prêmios, gregas, break-even, P/L, ação sugerida e a sua
-anotação); o Radar manda um card por oportunidade **com o porquê** (tendência
+ação (spot, strike, prêmios, gregas, break-even, P/L, ação e a **análise escrita
+pelo motor**); o Radar manda um card por oportunidade **com o porquê** (tendência
 M9/M21, IV Rank, score OpLab, margem). Operações tranquilas não entram no e-mail.
 
-**Anotações (aba COMENTARIOS):** criada automaticamente (colunas `CODIGO`,
-`COMENTARIO`). Escreva o `OPTION_TICKER` (ex.: `PRIOR660`) ou o `TICKER` (ex.:
-`PRIO3`) e seu comentário — ele aparece no card do e-mail e no painel web.
+**Botões na aba CONFIG:** criada automaticamente (`CHAVE`/`VALOR`). Controle pelo
+celular, sem mexer em código: `ENVIAR_EMAIL`, `ENVIAR_EMAIL_ESCUDO`,
+`ENVIAR_EMAIL_RADAR` (TRUE/FALSE) e `ESCUDO_NIVEL_MINIMO_EMAIL` (ALERTA/CRITICO).
+
+**Painéis ao vivo (`PAINEL_ESCUDO` / `PAINEL_RADAR`):** sobrescritos a cada
+execução com o estado atual + a **análise do motor** por operação/oportunidade.
+Alimentam o web app (que atualiza junto com o pregão).
 
 **Testes (sem depender do mercado):** 32 testes cobrem parser, Escudo (por perna
 + carteira), Radar, métricas de risco, o relógio de ponto e o **orquestrador

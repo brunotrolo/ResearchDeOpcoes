@@ -24,7 +24,7 @@ def _ativa(**kw) -> dict:
 def harness(monkeypatch):
     """Mocka OpLab, Sheets (leitura/escrita), e-mail e estado."""
     cap = {"escudo_email": [], "radar_email": [], "history": [], "heartbeat": [],
-           "logs": [], "test_email": []}
+           "logs": [], "test_email": [], "painel": []}
 
     monkeypatch.setattr(app_main.notifier, "send_escudo_alert",
                         lambda alerts: cap["escudo_email"].append(alerts) or True)
@@ -35,6 +35,9 @@ def harness(monkeypatch):
     monkeypatch.setattr(app_main.sheets_client, "upsert_status_row",
                         lambda tab, header, row: cap["heartbeat"].append(row))
     monkeypatch.setattr(app_main.sheets_client, "ensure_tab", lambda *a, **k: None)
+    monkeypatch.setattr(app_main.sheets_client, "ensure_config", lambda *a, **k: None)
+    monkeypatch.setattr(app_main.sheets_client, "replace_tab",
+                        lambda tab, header, rows: cap["painel"].append((tab, len(rows))))
     monkeypatch.setattr(app_main.state, "run_lock", lambda *a, **k: contextlib.nullcontext())
     monkeypatch.setattr(app_main.state, "filter_new_alerts", lambda x: x)
     monkeypatch.setattr(app_main.state, "filter_new_opportunities", lambda x: x)
@@ -148,3 +151,19 @@ def test_homologar_ignora_mercado_fechado(monkeypatch, harness):
     # rodou os módulos mesmo com o mercado fechado -> e-mail do Escudo disparado
     assert len(harness["escudo_email"]) == 1
     assert "PRIOR660" in [a["option_ticker"] for a in harness["escudo_email"][0]]
+
+
+def test_config_desliga_email(monkeypatch, harness):
+    # botão ENVIAR_EMAIL=FALSE na aba CONFIG -> não manda e-mail, mas atualiza painel.
+    _market(monkeypatch, "A")
+    ativas = pd.DataFrame([_ativa(
+        OPTION_TICKER="PRIOR660", TICKER="PRIO3", MONEYNESS="ITM", STRIKE="R$ 66,00",
+        SPOT="R$ 60,54", ENTRY_PRICE="R$ 1,80", LAST_PREMIUM="R$ 4,79", DELTA="-1,00",
+        POE="1,00", PL_VALUE="-R$ 897,00", MAX_LOSS="R$ 19.260,00", DTE_CALENDAR="12",
+        EXPIRY="19/06/2026")])
+    cfg = pd.DataFrame([dict(CHAVE="ENVIAR_EMAIL", VALOR="FALSE")])
+    _tabs(monkeypatch, {"ativas": ativas, "config": cfg})
+    rc = app_main.run()
+    assert rc == 0
+    assert harness["escudo_email"] == []          # e-mail desligado na CONFIG
+    assert any(p[0] == app_main.config.TAB_PAINEL_ESCUDO for p in harness["painel"])  # painel atualizado
