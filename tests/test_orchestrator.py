@@ -23,7 +23,8 @@ def _ativa(**kw) -> dict:
 @pytest.fixture
 def harness(monkeypatch):
     """Mocka OpLab, Sheets (leitura/escrita), e-mail e estado."""
-    cap = {"escudo_email": [], "radar_email": [], "history": [], "heartbeat": [], "logs": []}
+    cap = {"escudo_email": [], "radar_email": [], "history": [], "heartbeat": [],
+           "logs": [], "test_email": []}
 
     monkeypatch.setattr(app_main.notifier, "send_escudo_alert",
                         lambda alerts: cap["escudo_email"].append(alerts) or True)
@@ -51,6 +52,16 @@ def _market(monkeypatch, code="A"):
     monkeypatch.setattr(app_main.market_gate, "check_market",
                         lambda: SimpleNamespace(is_open=(code == "A"), code=code,
                                                 server_time="x", raw={"market_status": code}))
+
+
+def _runtime(**over):
+    """Cria um RUNTIME (namespace) baseado no real, com sobrescritas (RUNTIME é frozen)."""
+    r = app_main.config.RUNTIME
+    base = dict(timezone=r.timezone, dry_run=r.dry_run, force_run=r.force_run,
+                email_test_only=r.email_test_only, state_dir=r.state_dir,
+                log_file=r.log_file, lock_file=r.lock_file, state_file=r.state_file)
+    base.update(over)
+    return SimpleNamespace(**base)
 
 
 def test_mercado_fechado_nao_analisa(monkeypatch, harness):
@@ -105,3 +116,34 @@ def test_radar_oportunidade_dispara_email_e_funil(monkeypatch, harness):
     assert len(harness["radar_email"]) == 1
     assert harness["radar_email"][0][0]["option_ticker"] == "USIMS112"
     assert any(e.service == "RADAR" and "Funil" in e.summary for e in harness["logs"])
+
+
+def test_email_teste_mesmo_com_mercado_fechado(monkeypatch, harness):
+    # ação "email_teste": manda e-mail de teste e ignora o pregão fechado.
+    monkeypatch.setattr(app_main.config, "RUNTIME", _runtime(force_run=True, email_test_only=True))
+    monkeypatch.setattr(app_main.notifier, "send_test_email",
+                        lambda: harness["test_email"].append(True) or True)
+    _market(monkeypatch, "F")
+    _tabs(monkeypatch, {})
+    rc = app_main.run()
+    assert rc == 0
+    assert harness["test_email"] == [True]      # e-mail de teste enviado
+    assert harness["escudo_email"] == []        # não roda os módulos
+    assert harness["heartbeat"]                 # heartbeat gravado
+
+
+def test_homologar_ignora_mercado_fechado(monkeypatch, harness):
+    # ação "homologar": roda TUDO de verdade mesmo com a B3 fechada.
+    monkeypatch.setattr(app_main.config, "RUNTIME", _runtime(force_run=True))
+    _market(monkeypatch, "F")
+    ativas = pd.DataFrame([_ativa(
+        OPTION_TICKER="PRIOR660", TICKER="PRIO3", MONEYNESS="ITM", STRIKE="R$ 66,00",
+        SPOT="R$ 60,54", ENTRY_PRICE="R$ 1,80", LAST_PREMIUM="R$ 4,79", DELTA="-1,00",
+        POE="1,00", PL_VALUE="-R$ 897,00", MAX_LOSS="R$ 19.260,00", DTE_CALENDAR="12",
+        EXPIRY="19/06/2026")])
+    _tabs(monkeypatch, {"ativas": ativas})
+    rc = app_main.run()
+    assert rc == 0
+    # rodou os módulos mesmo com o mercado fechado -> e-mail do Escudo disparado
+    assert len(harness["escudo_email"]) == 1
+    assert "PRIOR660" in [a["option_ticker"] for a in harness["escudo_email"][0]]
