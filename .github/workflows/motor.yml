@@ -4,8 +4,9 @@ name: Motor (Escudo + Radar)
 #   - schedule: de hora em hora, ~10h-18h BRT (UTC-3), seg-sex. O próprio
 #     motor consulta a OpLab (/market/status) e encerra se o mercado estiver
 #     fechado, então execuções fora do pregão são baratas (no-op).
-#   - workflow_dispatch: permite rodar manualmente (pelo site do GitHub, que
-#     abre no celular), com a opção de modo TESTE (dry-run).
+#   - workflow_dispatch: roda manualmente (pelo site do GitHub, abre no celular).
+#     Opções: "normal" (respeita o pregão), "homologar" (ignora mercado fechado
+#     e roda tudo de verdade) e "email_teste" (só manda um e-mail de teste).
 #
 # Segredos necessários (Settings > Secrets and variables > Actions):
 #   OPLAB_TOKEN, SPREADSHEET_ID, GOOGLE_CREDENTIALS_JSON (conteúdo do JSON),
@@ -21,10 +22,14 @@ on:
     - cron: "0 13-21 * * 1-5"   # 10:00–18:00 BRT, seg–sex
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Modo teste? (não envia e-mail nem grava na planilha)"
-        type: boolean
-        default: true
+      acao:
+        description: "O que fazer?"
+        type: choice
+        default: normal
+        options:
+          - normal       # respeita o pregão (encerra se mercado fechado)
+          - homologar    # IGNORA mercado fechado e roda TUDO de verdade (LOGS + e-mails)
+          - email_teste  # só manda um e-mail de teste (prova que o pager funciona)
 
 concurrency:
   group: motor          # evita execuções sobrepostas (substitui o lock-file)
@@ -70,8 +75,10 @@ jobs:
           EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
           GOOGLE_CREDENTIALS_FILE: credenciais.json
           MARKET_TZ: America/Sao_Paulo
-          # Nas execuções agendadas roda "pra valer"; no dispatch manual usa a opção.
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          DRY_RUN: "false"
+          # homologar/email_teste ignoram o mercado fechado (rodam num domingo).
+          FORCE_RUN: ${{ (inputs.acao == 'homologar' || inputs.acao == 'email_teste') && 'true' || 'false' }}
+          EMAIL_TEST_ONLY: ${{ inputs.acao == 'email_teste' && 'true' || 'false' }}
         run: |
           mkdir -p state logs
           python main.py

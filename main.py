@@ -119,13 +119,17 @@ def _run_escudo(log: Logbook, tz, summary: dict) -> None:
         log.info("ESCUDO", f"{len(rows)} linha(s) gravada(s) em {config.TAB_HIST_ESCUDO}")
 
     worthy = escudo.email_worthy(alerts)
-    fresh = state.filter_new_alerts(worthy)
-    if fresh:
-        sent = notifier.send_escudo_alert(fresh)
-        log.info("ESCUDO", f"E-mail urgente {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} novo(s))",
-                 {"opcoes": [a["option_ticker"] for a in fresh]})
+    if config.RUNTIME.dry_run:
+        log.info("ESCUDO", f"[DRY_RUN] {len(worthy)} alerta(s) elegíveis a e-mail (não enviado, dedupe intacto)",
+                 {"opcoes": [a["option_ticker"] for a in worthy]})
     else:
-        log.info("ESCUDO", f"Sem novos alertas para e-mail ({len(worthy)} elegíveis já notificados hoje)")
+        fresh = state.filter_new_alerts(worthy)
+        if fresh:
+            sent = notifier.send_escudo_alert(fresh)
+            log.info("ESCUDO", f"E-mail urgente {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} novo(s))",
+                     {"opcoes": [a["option_ticker"] for a in fresh]})
+        else:
+            log.info("ESCUDO", f"Sem novos alertas para e-mail ({len(worthy)} elegíveis já notificados hoje)")
 
 
 def _run_radar(log: Logbook, tz, summary: dict) -> None:
@@ -153,13 +157,17 @@ def _run_radar(log: Logbook, tz, summary: dict) -> None:
         sheets_client.append_rows(config.TAB_HIST_RADAR, rows, header=_RADAR_HIST_HEADER)
         log.info("RADAR", f"{len(rows)} linha(s) gravada(s) em {config.TAB_HIST_RADAR}")
 
-    fresh = state.filter_new_opportunities(opps)
-    if fresh:
-        sent = notifier.send_radar_opportunities(opps)
-        log.info("RADAR", f"E-mail de oportunidade {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} nova(s))",
-                 {"novas": [o["option_ticker"] for o in fresh]})
+    if config.RUNTIME.dry_run:
+        log.info("RADAR", f"[DRY_RUN] {len(opps)} oportunidade(s) (e-mail não enviado, dedupe intacto)",
+                 {"opcoes": [o["option_ticker"] for o in opps]})
     else:
-        log.info("RADAR", "Nenhuma oportunidade nova para e-mail")
+        fresh = state.filter_new_opportunities(opps)
+        if fresh:
+            sent = notifier.send_radar_opportunities(opps)
+            log.info("RADAR", f"E-mail de oportunidade {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} nova(s))",
+                     {"novas": [o["option_ticker"] for o in fresh]})
+        else:
+            log.info("RADAR", "Nenhuma oportunidade nova para e-mail")
 
 
 def run() -> int:
@@ -186,21 +194,30 @@ def run() -> int:
                 return rc
             summary["market"] = market.code
             log.info("MARKET_GATE", f"market_status={market.code}", market.raw)
-            if not market.is_open:
+            if not market.is_open and not config.RUNTIME.force_run:
                 log.info("MARKET_GATE", "Mercado fechado — encerrando para poupar processamento", {"code": market.code})
                 status_final = "FECHADO"
                 return 0
+            if not market.is_open and config.RUNTIME.force_run:
+                log.warn("MARKET_GATE", "Mercado FECHADO, mas FORCE_RUN ativo — rodando para HOMOLOGAÇÃO",
+                         {"code": market.code})
 
-            # --- Módulos ---
-            for name, fn in (("ESCUDO", _run_escudo), ("RADAR", _run_radar)):
-                try:
-                    fn(log, tz, summary)
-                except Exception as exc:
-                    summary["errors"] += 1
-                    status_final = "ERROR"
-                    rc = 1
-                    log.error(name, f"Erro no módulo {name}",
-                              {"erro": str(exc), "trace": traceback.format_exc()[:2000]})
+            if config.RUNTIME.email_test_only:
+                # Homologação rápida do pager: só manda um e-mail de teste.
+                sent = notifier.send_test_email()
+                log.info("EMAIL_TESTE", f"E-mail de teste {'enviado' if sent else 'NÃO enviado'}")
+                status_final = "EMAIL_TESTE"
+            else:
+                # --- Módulos ---
+                for name, fn in (("ESCUDO", _run_escudo), ("RADAR", _run_radar)):
+                    try:
+                        fn(log, tz, summary)
+                    except Exception as exc:
+                        summary["errors"] += 1
+                        status_final = "ERROR"
+                        rc = 1
+                        log.error(name, f"Erro no módulo {name}",
+                                  {"erro": str(exc), "trace": traceback.format_exc()[:2000]})
 
             state.mark_run_ok({"market": market.code, **summary})
             if status_final == "OK":

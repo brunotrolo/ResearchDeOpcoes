@@ -86,6 +86,8 @@ class Email:
 class Runtime:
     timezone: str = _env("MARKET_TZ", "America/Sao_Paulo")
     dry_run: bool = _env_bool("DRY_RUN", False)        # True = não envia e-mail, não grava planilha
+    force_run: bool = _env_bool("FORCE_RUN", False)    # True = roda mesmo com mercado fechado (homologação)
+    email_test_only: bool = _env_bool("EMAIL_TEST_ONLY", False)  # True = só manda um e-mail de teste
     state_dir: Path = BASE_DIR / "state"
     log_file: Path = BASE_DIR / "logs" / "motor.log"
     lock_file: Path = BASE_DIR / "state" / "motor.lock"

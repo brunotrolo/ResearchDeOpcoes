@@ -63,6 +63,21 @@ def _fmt(v, spec: str = "", dash: str = "-") -> str:
     return format(v, spec) if v is not None else dash
 
 
+def send_test_email() -> bool:
+    """E-mail de teste — prova que segredos, SMTP e envio estão OK (homologação)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    agora = datetime.now(ZoneInfo(config.RUNTIME.timezone)).strftime("%d/%m/%Y %H:%M:%S")
+    subject = "✅ ResearchDeOpcoes — e-mail de teste OK"
+    text = (f"Se você recebeu este e-mail, o pager está funcionando.\n\n"
+            f"Segredos, SMTP e envio: OK.\nHorário: {agora}\n— motor ResearchDeOpcoes")
+    html = (f"<h2 style='font-family:Segoe UI,Arial'>✅ E-mail de teste OK</h2>"
+            f"<p style='font-family:Segoe UI,Arial'>Se você recebeu este e-mail, o <b>pager está "
+            f"funcionando</b>: segredos, SMTP e envio OK.</p>"
+            f"<p style='font-family:Segoe UI,Arial;color:#666'>Horário: {agora} · motor ResearchDeOpcoes</p>")
+    return _send(subject, html, text)
+
+
 def send_escudo_alert(alerts: list[dict]) -> bool:
     """alerts: lista já filtrada para níveis que merecem e-mail (ALERTA/CRÍTICO)."""
     if not alerts:
