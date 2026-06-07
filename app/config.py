@@ -133,6 +133,8 @@ DEFAULT_CONFIG = [
     ["ENVIAR_EMAIL_ESCUDO", "TRUE", "E-mail de defesa de posicoes (TRUE/FALSE)"],
     ["ENVIAR_EMAIL_RADAR", "TRUE", "E-mail de oportunidades do Radar (TRUE/FALSE)"],
     ["ESCUDO_NIVEL_MINIMO_EMAIL", "ALERTA", "Nivel minimo p/ e-mail de Escudo (ALERTA ou CRITICO)"],
+    ["USAR_MONTECARLO", "TRUE", "Filtrar Radar por prob. de exercicio (Monte Carlo)"],
+    ["POE_MAXIMA", "25", "Prob. maxima de exercicio (%) para recomendar uma PUT (ex.: 25)"],
 ]
 # Painéis sobrescritos a cada execução (alimentam o web app).
 PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "NIVEL", "MONEYNESS", "DTE",
@@ -235,6 +237,8 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "middle_term_trend": "MIDDLE_TERM_TREND",
         "short_term_trend": "SHORT_TERM_TREND",
         "oplab_score": "OPLAB_SCORE",
+        "garch_1y": "GARCH11_1Y",            # vol realizada (GARCH), DIÁRIA
+        "stdv_1y": "STDV_1Y",                # desvio-padrão histórico, DIÁRIO
     },
     "correl": {
         "ticker": "TICKER",
@@ -290,6 +294,9 @@ class RadarCfg:
     # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?
     use_dados_ativos_whitelist: bool = _env_bool("RADAR_USE_WHITELIST", True)
     require_has_options: bool = _env_bool("RADAR_REQUIRE_HAS_OPTIONS", True)
+    # Monte Carlo: só recomenda PUT com probabilidade de exercício <= poe_max
+    use_montecarlo: bool = _env_bool("RADAR_USE_MONTECARLO", True)
+    poe_max: float = _env_float("RADAR_POE_MAX", 0.25)
     # Janela de DTE (dias corridos) — sweet spot de venda de prêmio
     dte_min: int = _env_int("RADAR_DTE_MIN", 21)
     dte_max: int = _env_int("RADAR_DTE_MAX", 45)
@@ -313,6 +320,11 @@ RISK_PER_TRADE = _env_float("RISK_PER_TRADE", 0.02)
 
 # Auditoria: True = registra TODOS os passos/leituras/cálculos na aba LOGS.
 AUDIT_VERBOSE = _env_bool("AUDIT_VERBOSE", True)
+
+# Monte Carlo (probabilidade de exercício): nº de cenários, semente, drift (0 = sem tendência).
+MC_N = _env_int("MC_N", 10000)
+MC_SEED = _env_int("MC_SEED", 42)
+MC_DRIFT = _env_float("MC_DRIFT", 0.0)
 
 
 def cols(table: str) -> dict[str, str]:

@@ -28,6 +28,7 @@ from app import (
     escudo,
     frames,
     market_gate,
+    montecarlo,
     notifier,
     radar,
     sheets_client,
@@ -38,6 +39,26 @@ from app.logbook import Logbook
 
 def _is_true(v) -> bool:
     return str(v).strip().upper() in {"TRUE", "1", "SIM", "VERDADEIRO", "ON", "YES"}
+
+
+def _mc_setup(cfg_sheet: dict):
+    """Devolve (simulador, poe_max) conforme a CONFIG; (None, None) se desligado."""
+    if not _is_true(cfg_sheet.get("USAR_MONTECARLO", "TRUE")):
+        return None, None
+    try:
+        poe_max = float(str(cfg_sheet.get("POE_MAXIMA", "10")).replace(",", ".")) / 100.0
+    except (TypeError, ValueError):
+        poe_max = config.RADAR.poe_max
+    sim = montecarlo.MonteCarloSimulator(config.MC_N, config.MC_SEED, config.MC_DRIFT)
+    return sim, poe_max
+
+
+def _mc_enrich(items: list[dict], vol_map: dict, sim) -> None:
+    """Adiciona poe_mc_iv/real/gate a cada item (usa spot/strike/dte + vol do ativo)."""
+    for it in items:
+        vm = vol_map.get(str(it.get("ticker", "")).strip().upper(), {})
+        it.update(montecarlo.poe_resumo(sim, it.get("spot"), it.get("strike"), it.get("dte"),
+                                        vm.get("iv"), vm.get("real")))
 
 
 def _read_config(log: Logbook) -> dict:
@@ -63,9 +84,9 @@ _RADAR_HIST_HEADER = [
     "IV_RANK", "PROFIT_RATE", "DTE", "VOLUME_FIN",
 ]
 _ALERT_FIELDS = ("option_ticker", "ticker", "nivel", "moneyness", "dte", "delta",
-                 "poe", "buyback_mult", "pl_value", "motivo")
+                 "poe", "poe_mc_gate", "buyback_mult", "pl_value", "motivo")
 _OPP_FIELDS = ("option_ticker", "ticker", "strike", "spot", "spot_strike_ratio",
-               "iv_rank", "profit_rate", "dte", "volume_fin", "contratos_sugeridos")
+               "iv_rank", "profit_rate", "dte", "volume_fin", "poe_mc_gate", "contratos_sugeridos")
 
 
 def _now_str(tz) -> str:
@@ -114,6 +135,13 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     port_alerts = escudo.analyze_portfolio(df, df_correl, audit=port_audit)
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
     alerts = port_alerts + escudo.analyze(df, today)
+
+    sim, _ = _mc_setup(cfg_sheet)
+    if sim is not None:
+        try:
+            _mc_enrich(alerts, radar.build_vol_map(sheets_client.read_tab("dados_ativos")), sim)
+        except Exception as exc:
+            log.warn("ESCUDO", "Monte Carlo não aplicado (DADOS_ATIVOS)", {"erro": str(exc)})
 
     por_nivel: dict = {}
     for a in alerts:
@@ -168,13 +196,14 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     _audit_read(log, "SELECAO_OPCOES_MAIORES_LUCROS", df_lucros)
     df_volumes = sheets_client.read_tab("volumes")
     _audit_read(log, "SELECAO_MAIORES_VOLUMES", df_volumes)
-    df_dados = None
-    if config.RADAR.use_dados_ativos_whitelist:
-        df_dados = sheets_client.read_tab("dados_ativos")
-        _audit_read(log, "DADOS_ATIVOS", df_dados)
+    df_dados = sheets_client.read_tab("dados_ativos")
+    _audit_read(log, "DADOS_ATIVOS", df_dados)
 
+    sim, poe_max = _mc_setup(cfg_sheet)
+    vmap = radar.build_vol_map(df_dados) if sim is not None else None
     funil: dict = {}
-    opps = radar.scan(df_lucros, df_volumes, df_dados, audit=funil)
+    opps = radar.scan(df_lucros, df_volumes, df_dados, audit=funil,
+                      mc=sim, vol_map=vmap, poe_max=poe_max)
     log.info("RADAR", "Funil de filtros", funil)
     summary["radar_opps"] = len(opps)
     log.info("RADAR", f"{len(opps)} oportunidade(s) após filtros",

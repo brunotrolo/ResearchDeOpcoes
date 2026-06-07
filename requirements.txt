@@ -4,6 +4,7 @@
 gspread>=6.1.0            # leitura/escrita Google Sheets
 google-auth>=2.30.0      # autenticação Service Account (credenciais.json)
 pandas>=2.2.0            # filtros e cruzamentos do Radar
+numpy>=1.26.0           # Monte Carlo (GBM) — probabilidade de exercício
 requests>=2.32.0         # chamada à OpLab (/market/status)
 python-dotenv>=1.0.1     # carrega .env (segredos e parâmetros)
 tenacity>=8.3.0          # retry com backoff (rede corporativa/instável)
