@@ -5,8 +5,10 @@
     2. Arquivo local (logs/motor.log) — resiliência se a planilha falhar.
     3. stdout — útil ao rodar manualmente.
 
-Os registros são bufferizados em memória e gravados de uma vez no final
-(flush) para minimizar requisições à API do Sheets.
+Os registros são bufferizados em memória e gravados de uma vez no final (flush).
+A aba LOGS é REESCRITA a cada ciclo com o run mais recente no TOPO (sem faixas de
+linhas vazias e com tamanho limitado) — assim a auditoria fica visível logo abaixo
+do cabeçalho, em vez de empurrada para o fim por `append` (causa do 'aba vazia').
 """
 from __future__ import annotations
 
@@ -75,17 +77,23 @@ class Logbook:
         self.log(service, "ERROR", summary, context)
 
     def flush(self) -> None:
-        """Grava o buffer na aba LOGS (a não ser em DRY_RUN)."""
+        """Reescreve a aba LOGS com este ciclo no TOPO (a não ser em DRY_RUN).
+
+        Antes era um `append` cego, que deixava uma faixa de linhas vazias sob o
+        cabeçalho e empurrava o run mais recente para o fim — a aba PARECIA vazia.
+        Agora reescrevemos com o run novo no topo, sem faixas vazias e com tamanho
+        limitado, então a auditoria fica visível logo abaixo do cabeçalho."""
         if not self._entries:
             return
         if config.RUNTIME.dry_run:
             _logger.info("[DRY_RUN] %d linhas NÃO gravadas na aba LOGS", len(self._entries))
             return
         try:
-            sheets_client.append_rows(
+            sheets_client.write_log_rows(
                 config.TAB_LOGS,
+                config.LOGS_HEADER,
                 [e.as_row() for e in self._entries],
-                header=config.LOGS_HEADER,
+                max_rows=config.LOGS_MAX_ROWS,
             )
         except Exception as exc:  # nunca deixe o log derrubar a execução
             _logger.error("Falha ao gravar LOGS no Sheets: %s", exc)

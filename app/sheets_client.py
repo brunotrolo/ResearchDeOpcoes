@@ -88,6 +88,43 @@ def append_rows(
     )
 
 
+def _merge_logs_newest_first(existing: Sequence[Sequence], new_rows: Sequence[Sequence],
+                             max_rows: int) -> list[list]:
+    """Bloco NOVO no topo + histórico SEM linhas vazias, limitado a `max_rows`.
+
+    O `append` do gspread/Sheets pode deixar uma faixa de linhas em branco entre o
+    cabeçalho e os dados (e empurra o run mais recente para o fim, fora da vista).
+    Reescrever com o run novo no topo, descartando linhas vazias, mantém a
+    auditoria sempre visível logo abaixo do cabeçalho."""
+    hist = [list(r) for r in existing if any(str(c).strip() for c in r)]
+    novos = [list(r) for r in new_rows]
+    return (novos + hist)[: max(max_rows, len(novos))]
+
+
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def write_log_rows(tab_title: str, header: Sequence[str], new_rows: Sequence[Sequence],
+                   max_rows: int = 4000) -> None:
+    """Reescreve a aba LOGS com o run mais recente no TOPO, sem faixas vazias e
+    com tamanho limitado. Determinístico: não depende da detecção de 'tabela' do
+    append (que vinha deixando os dados fora da área visível)."""
+    if not new_rows:
+        return
+    ss = _spreadsheet()
+    try:
+        ws = ss.worksheet(tab_title)
+        existing = ws.get_all_values()
+        existing = existing[1:] if existing else []   # descarta o cabeçalho antigo
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=tab_title, rows=max(len(new_rows) + 10, 50),
+                              cols=max(len(header), 5))
+        existing = []
+    body = _merge_logs_newest_first(existing, [[_cell(c) for c in r] for r in new_rows], max_rows)
+    need = len(body) + 1
+    if ws.row_count != need or ws.col_count < len(header):
+        ws.resize(rows=need, cols=max(len(header), ws.col_count))   # ajusta a grade (corta o excesso)
+    ws.update(values=[list(header)] + body, range_name="A1", value_input_option="USER_ENTERED")
+
+
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
 def upsert_status_row(tab_title: str, header: Sequence[str], row: Sequence) -> None:
     """Escreve `header` na linha 1 e `row` na linha 2, SOBRESCREVENDO (a aba
