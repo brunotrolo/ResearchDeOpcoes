@@ -266,11 +266,12 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     elif not enviar:
         log.info("ESCUDO", f"E-mail do Escudo DESLIGADO na CONFIG ({len(worthy)} elegíveis não enviados)")
     else:
-        fresh = state.filter_new_alerts(worthy)
+        # Homologação (FORCE_RUN) reenvia tudo; agendado respeita o dedupe diário.
+        fresh = worthy if config.RUNTIME.force_run else state.filter_new_alerts(worthy)
         if fresh:
             sent = notifier.send_escudo_alert(fresh)
-            log.info("ESCUDO", f"E-mail urgente {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} novo(s))",
-                     {"opcoes": [a["option_ticker"] for a in fresh]})
+            log.info("ESCUDO", f"E-mail {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} item(ns))",
+                     {"opcoes": [a["option_ticker"] for a in fresh], "homologacao": config.RUNTIME.force_run})
         else:
             log.info("ESCUDO", f"Sem novos alertas para e-mail ({len(worthy)} elegíveis já notificados hoje)")
 
@@ -317,11 +318,12 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     elif not enviar:
         log.info("RADAR", f"E-mail do Radar DESLIGADO na CONFIG ({len(opps)} oportunidades não enviadas)")
     else:
-        fresh = state.filter_new_opportunities(opps)
+        # Homologação (FORCE_RUN) reenvia tudo; agendado respeita o dedupe diário.
+        fresh = opps if config.RUNTIME.force_run else state.filter_new_opportunities(opps)
         if fresh:
             sent = notifier.send_radar_opportunities(opps)
-            log.info("RADAR", f"E-mail de oportunidade {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} nova(s))",
-                     {"novas": [o["option_ticker"] for o in fresh]})
+            log.info("RADAR", f"E-mail de oportunidade {'enviado' if sent else 'NÃO enviado'} ({len(fresh)} item(ns))",
+                     {"novas": [o["option_ticker"] for o in fresh], "homologacao": config.RUNTIME.force_run})
         else:
             log.info("RADAR", "Nenhuma oportunidade nova para e-mail")
 
