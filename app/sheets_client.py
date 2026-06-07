@@ -83,7 +83,7 @@ def append_rows(
             ws.append_row(list(header), value_input_option="USER_ENTERED")
 
     ws.append_rows(
-        [list(map(_cell, r)) for r in rows],
+        [[_cellval(c) for c in r] for r in rows],
         value_input_option="USER_ENTERED",
     )
 
@@ -98,7 +98,7 @@ def upsert_status_row(tab_title: str, header: Sequence[str], row: Sequence) -> N
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(title=tab_title, rows=10, cols=max(len(header), 8))
     ws.update(
-        values=[[_cell(c) for c in header], [_cell(c) for c in row]],
+        values=[[_cell(c) for c in header], [_cellval(c) for c in row]],
         range_name="A1",
         value_input_option="USER_ENTERED",
     )
@@ -172,12 +172,28 @@ def replace_tab(tab_title: str, header: Sequence[str], rows: Sequence[Sequence])
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(title=tab_title, rows=max(len(rows) + 10, 20), cols=max(len(header), 5))
     ws.clear()
-    data = [list(header)] + [[_cell(c) for c in r] for r in rows]
+    data = [list(header)] + [[_cellval(c) for c in r] for r in rows]
     ws.update(values=data, range_name="A1", value_input_option="USER_ENTERED")
 
 
 def _cell(value) -> str:
     return "" if value is None else str(value)
+
+
+def _cellval(value):
+    """Como `_cell`, mas PRESERVA números (int/float) como números.
+
+    Strings numéricas em pt-BR (ex.: "7.9") são interpretadas pelo Sheets como
+    DATA quando enviadas via USER_ENTERED (o ponto vira separador dia.mês).
+    Mandando o número de verdade, o Sheets o armazena como número — imune à
+    coerção. Use nos painéis/heartbeat (origem do web app)."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return value
+    return str(value)
 
 
 def reset_cache() -> None:
