@@ -154,6 +154,22 @@ def test_homologar_ignora_mercado_fechado(monkeypatch, harness):
     assert "PRIOR660" in [a["option_ticker"] for a in harness["escudo_email"][0]]
 
 
+def test_homologar_reenvia_ignorando_dedupe(monkeypatch, harness):
+    # Na homologação, reenvia mesmo que o dedupe diga "já notificado".
+    monkeypatch.setattr(app_main.config, "RUNTIME", _runtime(force_run=True))
+    monkeypatch.setattr(app_main.state, "filter_new_alerts", lambda x: [])  # tudo "já notificado hoje"
+    _market(monkeypatch, "F")
+    ativas = pd.DataFrame([_ativa(
+        OPTION_TICKER="PRIOR660", TICKER="PRIO3", MONEYNESS="ITM", STRIKE="R$ 66,00",
+        SPOT="R$ 60,54", ENTRY_PRICE="R$ 1,80", LAST_PREMIUM="R$ 4,79", DELTA="-1,00",
+        POE="1,00", PL_VALUE="-R$ 897,00", MAX_LOSS="R$ 19.260,00", DTE_CALENDAR="12",
+        EXPIRY="19/06/2026")])
+    _tabs(monkeypatch, {"ativas": ativas})
+    rc = app_main.run()
+    assert rc == 0
+    assert len(harness["escudo_email"]) == 1   # homologação reenviou apesar do dedupe
+
+
 def test_config_desliga_email(monkeypatch, harness):
     # botão ENVIAR_EMAIL=FALSE na aba CONFIG -> não manda e-mail, mas atualiza painel.
     _market(monkeypatch, "A")
