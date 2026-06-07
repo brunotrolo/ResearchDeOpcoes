@@ -37,7 +37,7 @@ Regras gerais:
 | `RADAR_TOP_N` | `5` | inteiro | Quantas oportunidades no e-mail |
 | `RADAR_MAX_POR_ATIVO` | `2` | inteiro | **Diversificação**: máx. de oportunidades do mesmo ativo-mãe no Top-N |
 | `RADAR_EXIGIR_TENDENCIA_ALTA` | `FALSE` | TRUE/FALSE | Só recomenda se a ação estiver em alta (M9 > M21) — mais restritivo |
-| `RADAR_EVITAR_TENDENCIA_BAIXA` | `TRUE` | TRUE/FALSE | **Padrão TRUE**: descarta venda de PUT/Trava em ação em **baixa** (M9 < M21) — a estratégia é altista. `FALSE` permite (entra só com aviso) |
+| `RADAR_EVITAR_TENDENCIA_BAIXA` | `TRUE` | TRUE/FALSE | Descarta venda de PUT em ação em **baixa** (M9 < M21). **Obs.:** com `RADAR_USAR_TRAVA=TRUE` (Trava de Alta, que é altista) a baixa é **sempre** descartada, mesmo com este flag em FALSE |
 | `RADAR_USAR_TRAVA` | `TRUE` | TRUE/FALSE | Recomenda **Trava de Alta com PUT** (risco limitado) em vez de PUT a seco |
 | `RADAR_TRAVA_LARGURA_PCT` | `5` | número (%) | Largura da trava: compra a PUT de proteção ~N% abaixo do strike vendido |
 

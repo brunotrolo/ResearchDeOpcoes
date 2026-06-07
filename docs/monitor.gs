@@ -301,7 +301,9 @@ function doGet() {
   }
 }
 
-function _render() {
+// Conteúdo dinâmico do painel (hero + resumo + cards). É re-renderizado a cada
+// refresh SEM recarregar a página (ver getPainel/_render).
+function _inner() {
   const a = _avaliar(), hb = a.hb || {};
   const hero = "<div class='hero' style='background:linear-gradient(135deg," + a.cor + "," + a.cor2 + ")'>"
     + "<div class='emoji'>" + a.emoji + "</div><h1>" + esc(a.titulo) + "</h1>"
@@ -312,11 +314,8 @@ function _render() {
     + "<div class='hstat'><div class='l'>Oportunidades</div><div class='v'>" + _fmtNum(hb.radar, 0) + "</div></div>"
     + "<div class='hstat'><div class='l'>Duração</div><div class='v'>" + _fmtNum(hb.dur, 1) + "s</div></div>"
     + "</div></div>";
-  let execUrl = '';
-  try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { execUrl = ''; }
-  execUrl = String(execUrl).replace(/['"<>]/g, '');   // seguro p/ embutir em JS
   const toolbar = "<div class='toolbar'><button class='btn' onclick='_refresh()'>↻ Atualizar agora</button>"
-    + "<span class='muted'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</span></div>";
+    + "<span class='muted' id='refStatus'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</span></div>";
   const resumo = _section('Resumo da última execução', (hb.runUrl ? "<a href='" + esc(hb.runUrl) + "'>GitHub »</a>" : ''),
     _grid([
       ['Horário', _fmtDateFull(hb.updatedAt)],
@@ -328,17 +327,29 @@ function _render() {
     ]) + (hb.notes ? "<div class='acao' style='padding:2px 14px 10px'>" + esc(hb.notes) + "</div>" : ''));
   const foot = "<div class='foot'>Pregão " + PREGAO_INI + "h–" + PREGAO_FIM + "h (seg–sex) · vigia avisa por e-mail se o motor parar"
     + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes</div>";
-  // Auto-refresh robusto: navega o TOPO para a URL /exec (o reload do iframe
-  // sandbox expira o token e some com a tela). Cai para reload se não houver URL.
-  const script = "<script>var EXEC_URL='" + execUrl + "';"
-    + "function _refresh(){try{if(EXEC_URL){window.top.location.href=EXEC_URL;return;}}catch(e){}"
-    + "try{if(EXEC_URL){location.href=EXEC_URL;return;}}catch(e){}location.reload();}"
-    + "setTimeout(_refresh," + (REFRESH_S * 1000) + ");</script>";
+  return hero + toolbar + resumo + _cardEscudo() + _cardRadar() + _cardLogs() + foot;
+}
 
+// Chamado pelo CLIENTE via google.script.run — devolve só o HTML do painel.
+function getPainel() {
+  try { return _inner(); }
+  catch (e) { return "<div class='sec'><div class='item'>Falha ao atualizar agora: "
+    + esc(e && e.message ? e.message : e) + "</div></div>"; }
+}
+
+function _render() {
+  // Refresh SEM reload: busca o HTML novo via google.script.run e troca o DOM.
+  // Evita a navegação do iframe sandbox (que expira o token e zera a tela).
+  const script = "<script>"
+    + "function _apply(html){var el=document.getElementById('painel');if(el&&html)el.innerHTML=html;}"
+    + "function _refresh(){var s=document.getElementById('refStatus');if(s)s.textContent='atualizando…';"
+    + "google.script.run.withSuccessHandler(_apply).withFailureHandler(function(){"
+    + "var s2=document.getElementById('refStatus');if(s2)s2.textContent='sem conexão — tentando de novo';}).getPainel();}"
+    + "setInterval(_refresh," + (REFRESH_S * 1000) + ");"
+    + "</script>";
   return "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
     + "<meta name='viewport' content='width=device-width, initial-scale=1'><style>" + _css() + "</style></head>"
-    + "<body><div class='wrap'>" + hero + toolbar + resumo
-    + _cardEscudo() + _cardRadar() + _cardLogs() + foot + "</div>" + script + "</body></html>";
+    + "<body><div class='wrap' id='painel'>" + _inner() + "</div>" + script + "</body></html>";
 }
 
 function _css() {

@@ -172,13 +172,13 @@ DEFAULT_CONFIG = [
 PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "SIDE", "TIPO", "NIVEL", "MONEYNESS",
                         "DTE", "EXPIRY", "QTD", "SPOT", "STRIKE", "DIST_PCT",
                         "PREMIO_ENTRADA", "PREMIO_ATUAL", "RECOMPRA_X", "BREAK_EVEN",
-                        "DELTA", "GAMMA", "POE", "POE_MC", "TOQUE", "PL_VALUE", "PL_PCT",
-                        "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO"]
+                        "DELTA", "GAMMA", "POE", "POE_MC", "PL_VALUE", "PL_PCT",
+                        "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO", "TOQUE"]
 PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STRIKE", "SPOT",
                        "DIST_PCT", "PREMIO", "PREMIO_FONTE", "IV_RANK", "TAXA_RETORNO", "POE_MC",
-                       "TOQUE", "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
+                       "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
                        "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
-                       "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE"]
+                       "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE", "TOQUE"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]

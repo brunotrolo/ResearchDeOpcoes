@@ -238,10 +238,10 @@ def _esc_panel_row(ts: str, a: dict) -> list:
             a.get("nivel"), a.get("moneyness"), a.get("dte"), a.get("expiry"), a.get("quantity"),
             a.get("spot"), a.get("strike"), a.get("dist_pct"), a.get("entry_price"),
             a.get("last_premium"), a.get("buyback_mult"), a.get("break_even"), a.get("delta"),
-            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"), a.get("toque_gate"),
+            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"),
             a.get("pl_value"), a.get("pl_pct"),
             a.get("max_gain"), a.get("max_profit_pct"), a.get("notional"),
-            a.get("analise"), a.get("acao_sugerida")]
+            a.get("analise"), a.get("acao_sugerida"), a.get("toque_gate")]
 
 
 def _rad_panel_row(ts: str, o: dict) -> list:
@@ -249,11 +249,11 @@ def _rad_panel_row(ts: str, o: dict) -> list:
     fonte = "estimado (≈)" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
     return [ts, o.get("ticker"), o.get("option_ticker"), o.get("expiry_fmt"), o.get("dte"),
             o.get("strike"), o.get("spot"), o.get("dist_pct"), o.get("premio"), fonte,
-            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"), o.get("toque_gate"),
+            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"),
             o.get("volume_fin"),
             tr.get("sell_strike"), tr.get("sell_premio"), tr.get("buy_strike"), tr.get("buy_premio"),
             tr.get("credito"), tr.get("risco_max"), tr.get("retorno_risco"),
-            o.get("motivo"), o.get("analise")]
+            o.get("motivo"), o.get("analise"), o.get("toque_gate")]
 
 
 # --- logs didáticos (passo a passo, p/ auditoria detalhada) -----------------
