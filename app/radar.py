@@ -5,8 +5,10 @@ Lê SELECAO_OPCOES_MAIORES_LUCROS e aplica os filtros do Bruno via Pandas:
     - CATEGORY == PUT
     - IV_RANK >= 50            (pânico / prêmio gordo)
     - SPOT_STRIKE_RATIO >= 1.02 (OTM com margem de segurança)
+    - DTE entre 21 e 45 dias    (sweet spot de theta sem gamma de vencimento)
     - Liquidez: VOLUME_FIN da opção > piso  E  (opcional) volume do ativo-mãe
-      (SELECAO_MAIORES_VOLUMES) acima do piso — evita book vazio.
+      (SELECAO_MAIORES_VOLUMES) acima do piso  E  (opcional) spread bid-ask
+      relativo <= limite — evita book vazio.
 
 Cruzamentos opcionais:
     - RANKING_TENDENCIA_M9M21: exigir tendência de alta da ação-mãe.
@@ -20,7 +22,7 @@ import math
 
 import pandas as pd
 
-from app import config, frames
+from app import config, frames, risk_metrics
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -29,7 +31,7 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
         out[field] = frames.raw(df, "lucros", field)
     out["category"] = frames.txt(df, "lucros", "category")
     for field in ("dte", "strike", "spot", "spot_strike_ratio", "iv_rank",
-                  "iv_current", "volume_fin", "profit_rate", "m9m21_trend"):
+                  "iv_current", "volume_fin", "bid", "ask", "profit_rate", "m9m21_trend"):
         out[field] = frames.num(df, "lucros", field)
     return out
 
@@ -76,11 +78,19 @@ def scan(
         & (df["iv_rank"] >= cfg.iv_rank_min)
         & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
         & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
+        & (df["dte"] >= cfg.dte_min)            # janela de DTE (sweet spot)
+        & (df["dte"] <= cfg.dte_max)
     )
     if cfg.require_trend_up:
         mask &= (df["m9m21_trend"] == 1)
 
     df = df[mask].copy()
+
+    # Filtro de spread bid-ask por opção (liquidez fina) — só se habilitado e
+    # houver BID/ASK na aba de lucros (ex.: espelhando o SCANNER_OPCOES).
+    if cfg.use_spread_filter and df["ask"].notna().any():
+        spread = df.apply(lambda r: risk_metrics.relative_spread(r["bid"], r["ask"]), axis=1)
+        df = df[(df["bid"].fillna(0) > 0) & (spread.fillna(1.0) <= cfg.bid_ask_spread_max)]
 
     # Liquidez do ativo-mãe (piso opcional)
     if cfg.min_underlying_volume > 0:
@@ -105,7 +115,17 @@ def scan(
         by=["profit_rate", "iv_rank"], ascending=[False, False], na_position="last"
     ).head(cfg.top_n)
 
-    return [_to_record(r) for _, r in df.iterrows()]
+    records = [_to_record(r) for _, r in df.iterrows()]
+
+    # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
+    # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).
+    if config.CAPITAL_DISPONIVEL > 0:
+        for rec in records:
+            strike = rec.get("strike")
+            if strike:
+                rec["contratos_sugeridos"] = risk_metrics.tamanho_posicao(
+                    config.CAPITAL_DISPONIVEL, strike * 100, config.RISK_PER_TRADE)
+    return records
 
 
 def _to_record(row: pd.Series) -> dict:

@@ -143,7 +143,11 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "entry_price": "ENTRY_PRICE",
         "last_premium": "LAST_PREMIUM",
         "delta": "DELTA",                    # por perna (confirmado)
+        "gamma": "GAMMA",                    # aceleração do delta (pré-perigo)
+        "vega": "VEGA",
+        "theta": "THETA",
         "poe": "POE",                        # probabilidade de exercício (0..1)
+        "sector": "SECTOR",                  # para o HHI setorial
         "expiry": "EXPIRY",                  # dd/mm/aaaa
         "dte_calendar": "DTE_CALENDAR",      # dias corridos até o vencimento
         "iv": "IV",
@@ -168,6 +172,8 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "iv_rank": "IV_RANK",
         "iv_current": "IV_CURRENT",
         "volume_fin": "VOLUME_FIN",
+        "bid": "BID",                  # opcional (espelhar SCANNER_OPCOES p/ filtro de spread)
+        "ask": "ASK",                  # opcional
         "profit_rate": "PROFIT_RATE_IF_EXERCISED",
         "m9m21_trend": "M9M21_TREND",
         "sector": "SECTOR",
@@ -201,6 +207,10 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "m9m21_trend": "M9_M21_TREND",       # 1 = alta, -1 = baixa
         "oplab_score": "OPLAB_SCORE",
     },
+    "correl": {
+        "ticker": "TICKER",
+        "correl_value": "CORREL_VALUE",
+    },
 }
 
 
@@ -221,8 +231,14 @@ class EscudoCfg:
     dte_critical: int = _env_int("ESCUDO_DTE_CRITICAL", 15)
     # Fração do MAX_LOSS da estratégia que, atingida, força CRÍTICO
     loss_vs_maxloss_pct: float = _env_float("ESCUDO_LOSS_VS_MAXLOSS_PCT", 0.50)
+    # Gamma alto = pré-perigo (aceleração do delta na perna vendida)
+    gamma_max: float = _env_float("ESCUDO_GAMMA_MAX", 0.05)
     # Só analisa a perna de risco (vendida) por padrão
     only_short_legs: bool = _env_bool("ESCUDO_ONLY_SHORT_LEGS", True)
+    # --- Risco de PORTFÓLIO (visão agregada) ---
+    hhi_max: float = _env_float("ESCUDO_HHI_MAX", 0.50)
+    ibov_exposure_max: float = _env_float("ESCUDO_IBOV_EXPOSURE_MAX", 0.80)
+    ibov_correl_threshold: float = _env_float("ESCUDO_IBOV_CORREL_THRESHOLD", 0.50)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +257,12 @@ class RadarCfg:
     # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?
     use_dados_ativos_whitelist: bool = _env_bool("RADAR_USE_WHITELIST", True)
     require_has_options: bool = _env_bool("RADAR_REQUIRE_HAS_OPTIONS", True)
+    # Janela de DTE (dias corridos) — sweet spot de venda de prêmio
+    dte_min: int = _env_int("RADAR_DTE_MIN", 21)
+    dte_max: int = _env_int("RADAR_DTE_MAX", 45)
+    # Filtro de spread bid-ask por opção (precisa de BID/ASK na aba de lucros)
+    use_spread_filter: bool = _env_bool("RADAR_USE_SPREAD_FILTER", False)
+    bid_ask_spread_max: float = _env_float("RADAR_BID_ASK_SPREAD_MAX", 0.20)
     top_n: int = _env_int("RADAR_TOP_N", 5)
 
 
@@ -251,6 +273,10 @@ EMAIL = Email()
 RUNTIME = Runtime()
 ESCUDO = EscudoCfg()
 RADAR = RadarCfg()
+
+# Dimensionamento de posição (0 = desabilita a sugestão de sizing no Radar)
+CAPITAL_DISPONIVEL = _env_float("CAPITAL_DISPONIVEL", 0.0)
+RISK_PER_TRADE = _env_float("RISK_PER_TRADE", 0.02)
 
 
 def cols(table: str) -> dict[str, str]:
