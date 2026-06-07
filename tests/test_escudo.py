@@ -103,6 +103,54 @@ def test_mc_audit_vazio_sem_simulador():
     assert mc_audit == []
 
 
+def test_trava_de_alta_marca_risco_definido():
+    """PUT vendida ITM + PUT comprada de strike MENOR na MESMA estratégia = trava
+    de alta: o alerta marca risco DEFINIDO com a perna protetora e a perda máxima."""
+    rows = [
+        _ativa(OPTION_TICKER="VALES795", ID_STRATEGY="STR_VALE3", SIDE="VENDA", OPTION_TYPE="PUT",
+               MONEYNESS="ITM", STRIKE="R$ 76,00", SPOT="R$ 74,00", ENTRY_PRICE="R$ 2,00",
+               LAST_PREMIUM="R$ 3,00", DELTA="-0,70", QUANTITY="1000", PL_VALUE="-R$ 1.000,00",
+               MAX_LOSS="R$ 76.000,00", DTE_CALENDAR="40"),
+        _ativa(OPTION_TICKER="VALES765", ID_STRATEGY="STR_VALE3", SIDE="COMPRA", OPTION_TYPE="PUT",
+               MONEYNESS="OTM", STRIKE="R$ 72,00", SPOT="R$ 74,00", ENTRY_PRICE="R$ 1,00",
+               LAST_PREMIUM="R$ 1,50", DELTA="0,30", QUANTITY="1000",
+               MAX_LOSS="R$ 72.000,00", DTE_CALENDAR="40"),
+    ]
+    alerts = escudo.analyze(_df(rows), HOJE)
+    # Só a vendida vira alerta (a comprada é ignorada pelo only_short_legs)...
+    assert [a["option_ticker"] for a in alerts] == ["VALES795"]
+    pr = alerts[0].get("protecao_trava")
+    assert pr is not None
+    assert pr["buy_opt"] == "VALES765" and pr["buy_strike"] == 72.0
+    assert pr["largura"] == 4.0 and pr["credito"] == 1.0       # 76−72 ; entrada 2,00−1,00
+    assert pr["risco_max_rs"] == 3000.0                        # (4−1) × 1000
+    assert "Risco DEFINIDO pela trava" in alerts[0]["analise"] and "VALES765" in alerts[0]["analise"]
+
+
+def test_put_vendida_com_call_comprada_nao_e_trava():
+    """PUT vendida + CALL comprada na mesma estratégia NÃO é trava de alta."""
+    rows = [
+        _ativa(OPTION_TICKER="SANBV329", ID_STRATEGY="STR_SANB", SIDE="VENDA", OPTION_TYPE="PUT",
+               MONEYNESS="ITM", STRIKE="R$ 32,00", SPOT="R$ 27,00", ENTRY_PRICE="R$ 2,50",
+               LAST_PREMIUM="R$ 3,80", DELTA="-0,72", QUANTITY="500", DTE_CALENDAR="131"),
+        _ativa(OPTION_TICKER="SANBJ349", ID_STRATEGY="STR_SANB", SIDE="COMPRA", OPTION_TYPE="CALL",
+               MONEYNESS="OTM", STRIKE="R$ 34,00", SPOT="R$ 27,00", ENTRY_PRICE="R$ 0,55",
+               LAST_PREMIUM="R$ 0,55", DELTA="0,21", QUANTITY="400", DTE_CALENDAR="131"),
+    ]
+    a = [x for x in escudo.analyze(_df(rows), HOJE) if x["option_ticker"] == "SANBV329"][0]
+    assert a.get("protecao_trava") is None
+    assert "Risco DEFINIDO" not in a["analise"]
+
+
+def test_put_vendida_sem_perna_protetora_nao_marca_trava():
+    """PUT vendida sozinha (sem PUT comprada de strike menor) = risco naked."""
+    a = escudo.analyze(_df([_ativa(
+        OPTION_TICKER="PRIOR660", ID_STRATEGY="STR_PRIO", MONEYNESS="ITM", STRIKE="R$ 66,00",
+        SPOT="R$ 60,00", ENTRY_PRICE="R$ 1,80", LAST_PREMIUM="R$ 4,79", DELTA="-1,00",
+        QUANTITY="300", DTE_CALENDAR="12")]), HOJE)[0]
+    assert a.get("protecao_trava") is None
+
+
 def test_atm_benigno_e_aviso():
     alerts = escudo.analyze(_df([_ativa(
         OPTION_TICKER="DIRRR123", MONEYNESS="ATM", STRIKE="R$ 12,33", SPOT="R$ 12,26",

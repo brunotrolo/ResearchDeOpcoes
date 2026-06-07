@@ -76,18 +76,22 @@ class Logbook:
     def error(self, service: str, summary: str, context=None) -> None:
         self.log(service, "ERROR", summary, context)
 
-    def flush(self) -> None:
+    def flush(self) -> bool:
         """Reescreve a aba LOGS com este ciclo no TOPO (a não ser em DRY_RUN).
 
         Antes era um `append` cego, que deixava uma faixa de linhas vazias sob o
         cabeçalho e empurrava o run mais recente para o fim — a aba PARECIA vazia.
         Agora reescrevemos com o run novo no topo, sem faixas vazias e com tamanho
-        limitado, então a auditoria fica visível logo abaixo do cabeçalho."""
+        limitado, então a auditoria fica visível logo abaixo do cabeçalho.
+
+        Devolve True se gravou (ou pulou em DRY_RUN) e False se a escrita falhou —
+        o orquestrador usa isso para sinalizar a falha no heartbeat (MONITOR)."""
         if not self._entries:
-            return
+            return True
         if config.RUNTIME.dry_run:
             _logger.info("[DRY_RUN] %d linhas NÃO gravadas na aba LOGS", len(self._entries))
-            return
+            return True
+        ok = True
         try:
             sheets_client.write_log_rows(
                 config.TAB_LOGS,
@@ -97,5 +101,7 @@ class Logbook:
             )
         except Exception as exc:  # nunca deixe o log derrubar a execução
             _logger.error("Falha ao gravar LOGS no Sheets: %s", exc)
+            ok = False
         finally:
             self._entries.clear()
+        return ok
