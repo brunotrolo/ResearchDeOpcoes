@@ -134,6 +134,7 @@ def _escudo_card(a: dict) -> str:
         ("Recompra", f"{a.get('buyback_mult'):.2f}x".replace(".", ",") if a.get("buyback_mult") is not None else "—"),
         ("Delta", _num(a.get("delta"))), ("POE", _pct(a.get("poe") * 100, 0) if a.get("poe") is not None else "—"),
         ("PoE risco (MC)", _pct(a.get("poe_mc_gate") * 100, 0) if a.get("poe_mc_gate") is not None else "—"),
+        ("Toque (vira ITM)", _pct(a.get("toque_gate") * 100, 0) if a.get("toque_gate") is not None else "—"),
         ("Ganho máx.", _brl(a.get("max_gain"))), ("Lucro máx.", _pct(a.get("max_profit_pct"))),
         ("Nocional", _brl(a.get("notional"))),
     ]
@@ -228,6 +229,7 @@ def _radar_card(o: dict) -> str:
         ("Dist. (margem)", _pct(o.get("dist_pct"), 1)),
         ("IV Rank", _num(iv, 0)), ("Taxa retorno", _pct(o.get("profit_rate"))),
         (poe_lbl, _pct(o.get("poe_mc_gate") * 100, 0) if o.get("poe_mc_gate") is not None else "—"),
+        ("Toque (vira ITM)", _pct(o.get("toque_gate") * 100, 0) if o.get("toque_gate") is not None else "—"),
         ("Vol. financ.", _brl(o.get("volume_fin"))),
     ]
     if o.get("contratos_sugeridos") is not None:

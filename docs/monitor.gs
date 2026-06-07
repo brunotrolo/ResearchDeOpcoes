@@ -206,6 +206,7 @@ function _cardEscudo() {
       + _chip('γ', _fmtNum(g('GAMMA'), 2))
       + _chip('PoE', _fmtPct(_num(g('POE')) == null ? null : _num(g('POE')) * 100, 0))
       + (g('POE_MC') !== '' ? _chip('PoE-MC', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0)) : '')
+      + (g('TOQUE') !== '' ? _chip('Toque', _fmtPct(_num(g('TOQUE')) == null ? null : _num(g('TOQUE')) * 100, 0)) : '')
       + _chip('Recompra', _fmtNum(g('RECOMPRA_X'), 2) + 'x');
     const pl = _fmtMoney(g('PL_VALUE')) + ' (' + _fmtPct(g('PL_PCT'), 0) + ')';
     const grid = _grid([
@@ -255,6 +256,7 @@ function _cardRadar() {
       + _chip('IV', _fmtNum(g('IV_RANK'), 0))
       + _chip('Taxa', _fmtPct(g('TAXA_RETORNO'), 1))
       + _chip('PoE', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0))
+      + (g('TOQUE') !== '' ? _chip('Toque', _fmtPct(_num(g('TOQUE')) == null ? null : _num(g('TOQUE')) * 100, 0)) : '')
       + _chip('Prêmio', aprox + _fmtMoney(g('PREMIO')))
       + (g('VOLUME_FIN') !== '' ? _chip('Vol', _fmtMoney(g('VOLUME_FIN'))) : '');
     items += "<div class='item' style='border-left-color:#16a34a'>"

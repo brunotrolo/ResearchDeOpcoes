@@ -48,3 +48,48 @@ def test_poe_call_e_complemento_da_put():
     put = montecarlo.poe_resumo(sim, 100, 90, 30, 0.30, None, tipo="PUT")["poe_mc_iv"]
     call = montecarlo.poe_resumo(sim, 100, 90, 30, 0.30, None, tipo="CALL")["poe_mc_iv"]
     assert abs((put + call) - 1.0) < 1e-9   # P(S<K) + P(S>K) = 1
+
+
+# --- Probabilidade de TOQUE (first-passage, fórmula fechada) ----------------
+def test_toque_maior_que_poe_terminal():
+    """Tocar o strike no caminho é sempre ≥ terminar ITM (princípio da reflexão)."""
+    sim = montecarlo.MonteCarloSimulator(drift=0.0)
+    toque = sim.prob_toque(100, 95, 30, 0.30, tipo="PUT")
+    terminal = sim.poe_put_fechada(100, 95, 30, 0.30)
+    assert toque > terminal
+    assert abs(toque - 2 * terminal) < 0.05    # ~2x com drift ≈ 0 (reflexão)
+
+
+def test_toque_ja_no_dinheiro_e_certo():
+    sim = montecarlo.MonteCarloSimulator()
+    assert sim.prob_toque(90, 95, 30, 0.30, tipo="PUT") == 1.0    # PUT já ITM
+    assert sim.prob_toque(110, 105, 30, 0.30, tipo="CALL") == 1.0  # CALL já ITM
+
+
+def test_toque_baixa_aumenta_para_put():
+    """Drift negativo (tendência de baixa) eleva o toque de uma PUT vendida."""
+    sim = montecarlo.MonteCarloSimulator()
+    neutro = sim.prob_toque(100, 95, 30, 0.30, drift=0.0, tipo="PUT")
+    baixa = sim.prob_toque(100, 95, 30, 0.30, drift=-0.30, tipo="PUT")
+    assert baixa > neutro
+
+
+def test_toque_dados_invalidos_none():
+    sim = montecarlo.MonteCarloSimulator()
+    assert sim.prob_toque(None, 95, 30, 0.30) is None
+    assert sim.prob_toque(100, 95, 0, 0.30) is None
+    assert sim.prob_toque(100, 95, 30, None) is None
+
+
+def test_toque_resumo_gate_e_o_maior_e_tendencia():
+    sim = montecarlo.MonteCarloSimulator()
+    r = montecarlo.toque_resumo(sim, 100, 95, 30, 0.40, 0.20, tipo="PUT", drift_tendencia=-0.30)
+    assert r["toque_gate"] == max(r["toque_iv"], r["toque_real"])
+    assert r["toque_iv"] > r["toque_real"]            # mais vol -> mais toque
+    assert r["toque_tendencia"] > r["toque_gate"]     # baixa continua -> pior
+
+
+def test_cenarios_preco_ordenados():
+    sim = montecarlo.MonteCarloSimulator(drift=0.0)
+    c = sim.cenarios_preco(100, 0.30, 30)
+    assert c["p05"] < c["p50"] < c["p95"]

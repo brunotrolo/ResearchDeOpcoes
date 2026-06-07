@@ -37,7 +37,7 @@ Regras gerais:
 | `RADAR_TOP_N` | `5` | inteiro | Quantas oportunidades no e-mail |
 | `RADAR_MAX_POR_ATIVO` | `2` | inteiro | **Diversificação**: máx. de oportunidades do mesmo ativo-mãe no Top-N |
 | `RADAR_EXIGIR_TENDENCIA_ALTA` | `FALSE` | TRUE/FALSE | Só recomenda se a ação estiver em alta (M9 > M21) — mais restritivo |
-| `RADAR_EVITAR_TENDENCIA_BAIXA` | `FALSE` | TRUE/FALSE | Descarta venda de PUT em ação em **baixa** (M9 < M21). Mais brando que exigir alta: aceita neutro |
+| `RADAR_EVITAR_TENDENCIA_BAIXA` | `TRUE` | TRUE/FALSE | **Padrão TRUE**: descarta venda de PUT/Trava em ação em **baixa** (M9 < M21) — a estratégia é altista. `FALSE` permite (entra só com aviso) |
 | `RADAR_USAR_TRAVA` | `TRUE` | TRUE/FALSE | Recomenda **Trava de Alta com PUT** (risco limitado) em vez de PUT a seco |
 | `RADAR_TRAVA_LARGURA_PCT` | `5` | número (%) | Largura da trava: compra a PUT de proteção ~N% abaixo do strike vendido |
 
@@ -52,6 +52,8 @@ Regras gerais:
 | `ESCUDO_DTE_CRITICO` | `15` | inteiro | DTE que torna ITM/ATM crítico (risco de exercício) |
 | `ESCUDO_PERDA_MAX_PCT` | `50` | número (%) | Perda (% do MAX_LOSS) que vira crítico |
 | `ESCUDO_GAMMA_MAX` | `0.05` | número | Gamma que dispara "pré-perigo" |
+| `ESCUDO_TOQUE_AVISO` | `50` | número (%) | Prob. de **TOQUE** (perna OTM virar ITM antes de vencer) que vira AVISO — gatilho preditivo do Monte Carlo |
+| `ESCUDO_TOQUE_ALERTA` | `70` | número (%) | Prob. de **TOQUE** que vira ALERTA (te avisa **antes** de dar ruim) |
 | `ESCUDO_HHI_MAX` | `0.50` | número (0..1) | Concentração setorial máxima (HHI) |
 | `ESCUDO_IBOV_EXPOSICAO_MAX` | `80` | número (%) | Exposição máxima ao IBOV |
 | `ESCUDO_IBOV_CORREL_MIN` | `0.50` | número | Correlação mínima p/ contar como "exposto ao IBOV" |
