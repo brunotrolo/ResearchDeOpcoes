@@ -147,7 +147,9 @@ DEFAULT_CONFIG = [
     ["RADAR_DTE_MIN", "21", "DTE minimo (dias)"],
     ["RADAR_DTE_MAX", "45", "DTE maximo (dias)"],
     ["RADAR_TOP_N", "5", "Quantas oportunidades no e-mail"],
+    ["RADAR_MAX_POR_ATIVO", "2", "Maximo de oportunidades por ativo-mae (diversificacao)"],
     ["RADAR_EXIGIR_TENDENCIA_ALTA", "FALSE", "So recomenda se a acao estiver em alta M9>M21 (TRUE/FALSE)"],
+    ["RADAR_EVITAR_TENDENCIA_BAIXA", "FALSE", "Descarta venda de PUT em acao em baixa M9<M21 (TRUE/FALSE)"],
     ["RADAR_USAR_TRAVA", "TRUE", "Montar Trava de Alta com PUT (risco limitado) em vez de PUT a seco (TRUE/FALSE)"],
     ["RADAR_TRAVA_LARGURA_PCT", "5", "Largura da trava: PUT comprada ~N% abaixo do strike vendido (%)"],
     # --- Escudo (gatilhos de defesa) ---
@@ -354,6 +356,11 @@ class RadarCfg:
     min_underlying_volume: float = _env_float("RADAR_MIN_UNDERLYING_VOLUME", 0.0)
     # Exigir tendência de alta da ação-mãe (M9M21_TREND == 1)?
     require_trend_up: bool = _env_bool("RADAR_REQUIRE_TREND_UP", False)
+    # Descartar oportunidades em ação com tendência de BAIXA (M9M21_TREND == -1).
+    # Mais brando que require_trend_up: aceita neutro (0) e alta (1), só corta a baixa.
+    evitar_tendencia_baixa: bool = _env_bool("RADAR_EVITAR_TENDENCIA_BAIXA", False)
+    # Diversificação: máximo de oportunidades por ativo-mãe no Top-N (0 = sem limite).
+    max_por_ativo: int = _env_int("RADAR_MAX_POR_ATIVO", 2)
     # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?
     use_dados_ativos_whitelist: bool = _env_bool("RADAR_USE_WHITELIST", True)
     require_has_options: bool = _env_bool("RADAR_REQUIRE_HAS_OPTIONS", True)

@@ -268,3 +268,45 @@ def test_scan_scanner_expiry_serial_com_fracao_end_to_end():
     cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
     opps = radar.scan_scanner(scanner, cfg=cfg)
     assert opps and opps[0]["expiry_fmt"] == "19/06/2026"
+
+
+# --- Ajustes finos: diversificação, teto de PoE, tendência -----------------
+def test_scan_scanner_diversifica_por_ativo():
+    """max_por_ativo limita quantas oportunidades do MESMO ativo entram no Top-N,
+    abrindo espaço para outros papéis (antes o Top-5 era só BRKM5)."""
+    rows = [_scan_full(OPTION_TICKER=o, TICKER="VALE3", STRIKE=k, CLOSE=c, SPOT="80,00")
+            for o, k, c in [("VALEX78", "78,00", "3,00"), ("VALEX76", "76,00", "2,00"),
+                            ("VALEX74", "74,00", "1,40"), ("VALEX72", "72,00", "1,00")]]
+    rows.append(_scan_full(OPTION_TICKER="BBASX40", TICKER="BBAS3", STRIKE="40,00", CLOSE="1,50", SPOT="42,00"))
+    scanner = pd.DataFrame(rows)
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False, max_por_ativo=2, top_n=5)
+    audit: dict = {}
+    opps = radar.scan_scanner(scanner, cfg=cfg, audit=audit)
+    vale = [o for o in opps if o["ticker"] == "VALE3"]
+    assert len(vale) == 2                                  # diversificação corta a 2 por ativo
+    assert any(o["ticker"] == "BBAS3" for o in opps)       # abre espaço p/ outro papel
+    assert audit["diversificacao_cortou"] == 2             # VALEX74 e VALEX72 cortadas
+
+
+def test_scan_scanner_teto_poe_sem_mc_rotula_oplab():
+    """Sem Monte Carlo, o teto de PoE usa a POE da planilha e rotula a fonte."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="SEGURA", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00", POE="0,15"),
+        _scan_full(OPTION_TICKER="ARRISCADA", TICKER="VALE3", STRIKE="74,00", CLOSE="1,40", POE="0,45"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    opps = radar.scan_scanner(scanner, cfg=cfg, mc=None, vol_map=None, poe_max=0.25)
+    assert [o["option_ticker"] for o in opps] == ["SEGURA"]   # 0,45 > 0,25 barrada
+    assert opps[0]["poe_fonte"] == "OpLab"                     # rótulo correto (não "Monte Carlo")
+
+
+def test_scan_scanner_tendencia_baixa_avisa_e_filtra():
+    """Ação em baixa (M9<M21): por padrão entra COM aviso; com a flag, é descartada."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00"),
+    ])
+    dados = pd.DataFrame([dict(TICKER="VALE3", HAS_OPTIONS="TRUE", IV_RANK="70", M9_M21_TREND="-1")])
+    o = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg())[0]
+    assert "BAIXA" in (o.get("alerta_tendencia") or "")        # aviso direcional presente
+    cfg_evita = config.RadarCfg(evitar_tendencia_baixa=True)
+    assert radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg_evita) == []
