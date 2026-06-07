@@ -23,7 +23,26 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from app import config, frames, parsing, risk_metrics
+from app import config, frames, montecarlo, parsing, risk_metrics
+
+
+def build_vol_map(df_dados: pd.DataFrame | None) -> dict[str, dict]:
+    """{ticker: {iv: anual, real: anual}} a partir de DADOS_ATIVOS (anualizado)."""
+    if df_dados is None or df_dados.empty:
+        return {}
+    tickers = [str(t).strip().upper() for t in frames.raw(df_dados, "dados_ativos", "ticker")]
+    iv = _clean_list(frames.num(df_dados, "dados_ativos", "iv"))
+    garch = _clean_list(frames.num(df_dados, "dados_ativos", "garch_1y"))
+    stdv = _clean_list(frames.num(df_dados, "dados_ativos", "stdv_1y"))
+    out: dict[str, dict] = {}
+    for i, t in enumerate(tickers):
+        if not t:
+            continue
+        # GARCH11_1Y já é vol ANUAL em % (como o IV); STDV_1Y é desvio DIÁRIO.
+        real = (montecarlo.anual_from_iv_pct(garch[i]) if garch[i] is not None
+                else montecarlo.anual_from_daily(stdv[i]))
+        out[t] = {"iv": montecarlo.anual_from_iv_pct(iv[i]), "real": real}
+    return out
 
 
 def _fmt_expiry(raw) -> str:
@@ -107,6 +126,9 @@ def _motivo_radar(rec: dict) -> str:
     sc = rec.get("oplab_score")
     if sc is not None:
         partes.append(f"Score OpLab {sc:.0f}")
+    g = rec.get("poe_mc_gate")
+    if g is not None:
+        partes.append(f"PoE {g * 100:.0f}% (Monte Carlo)")
     return " · ".join(partes) if partes else "—"
 
 
@@ -125,6 +147,9 @@ def scan(
     df_dados_ativos: pd.DataFrame | None = None,
     cfg: config.RadarCfg | None = None,
     audit: dict | None = None,
+    mc: "montecarlo.MonteCarloSimulator | None" = None,
+    vol_map: dict | None = None,
+    poe_max: float | None = None,
 ) -> list[dict]:
     """Aplica filtros e devolve as Top-N oportunidades de venda de PUT.
 
@@ -185,6 +210,23 @@ def scan(
         allowed = _whitelist(df_dados_ativos, cfg.require_has_options)
         if allowed:
             df = df[df["ticker"].isin(allowed)]
+
+    # Filtro Monte Carlo: só mantém PUT com prob. de exercício <= poe_max.
+    if mc is not None and vol_map and not df.empty:
+        gates, ivs, reals = [], [], []
+        for _, r in df.iterrows():
+            vm = vol_map.get(str(r["ticker"]).strip().upper(), {})
+            res = montecarlo.poe_resumo(mc, r["spot"], r["strike"], r["dte"], vm.get("iv"), vm.get("real"))
+            gates.append(res["poe_mc_gate"])
+            ivs.append(res["poe_mc_iv"])
+            reals.append(res["poe_mc_real"])
+        df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
+        df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
+        df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+        if poe_max is not None:
+            df = df[df["poe_mc_gate"].isna() | (df["poe_mc_gate"] <= poe_max)]
+        if audit is not None:
+            audit["apos_montecarlo"] = int(len(df))
 
     if audit is not None:
         audit["apos_filtros"] = int(len(df))
