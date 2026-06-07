@@ -140,9 +140,10 @@ no máximo `RADAR_MAX_POR_ATIVO` (padrão 2) oportunidades por ativo-mãe, depoi
 corta no `RADAR_TOP_N`. Se `CAPITAL_DISPONIVEL > 0`, sugere o nº de contratos
 (margem-proxy = `strike × 100`, risco de `RISK_PER_TRADE` por trade).
 **Coerência direcional:** venda de PUT / Trava de Alta são estratégias **altistas**,
-então ações em tendência de **baixa** (M9<M21) são **descartadas por padrão**
-(`RADAR_EVITAR_TENDENCIA_BAIXA = TRUE`); com a flag desligada, entram só com um
-aviso. Cada oportunidade também traz a **probabilidade de TOQUE** do strike vendido.
+então ações em tendência de **baixa** (M9<M21) são **descartadas**. Com a Trava
+ligada (`RADAR_USAR_TRAVA`), a exclusão vale **sempre** — independe de
+`RADAR_EVITAR_TENDENCIA_BAIXA`. Cada oportunidade traz a **probabilidade de TOQUE**
+do strike vendido.
 
 ### `EXPIRY` serial do Sheets
 O `EXPIRY` do scanner vem como **número serial** (e às vezes com fração de hora,

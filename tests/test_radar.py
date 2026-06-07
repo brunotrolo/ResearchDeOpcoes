@@ -307,9 +307,9 @@ def test_scan_scanner_tendencia_baixa_descarta_por_padrao():
         _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00"),
     ])
     dados = pd.DataFrame([dict(TICKER="VALE3", HAS_OPTIONS="TRUE", IV_RANK="70", M9_M21_TREND="-1")])
-    # Padrão (evitar_tendencia_baixa=True) -> descartada.
+    # Padrão (trava ligada = altista) -> baixa descartada.
     assert radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg()) == []
-    # Desligando o filtro -> entra COM o aviso direcional.
-    cfg_off = config.RadarCfg(evitar_tendencia_baixa=False)
+    # Só com a trava E o flag desligados a baixa entra (PUT a seco), com o aviso.
+    cfg_off = config.RadarCfg(evitar_tendencia_baixa=False, usar_trava=False)
     o = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg_off)[0]
     assert "BAIXA" in (o.get("alerta_tendencia") or "")

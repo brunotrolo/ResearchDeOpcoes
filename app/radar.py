@@ -448,8 +448,10 @@ def scan_scanner(
     m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
     m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
     mask = m_dte
-    # Opcional: descarta venda de PUT em ação em tendência de BAIXA (M9<M21).
-    if cfg.evitar_tendencia_baixa:
+    # Venda de PUT / Trava de Alta são ALTISTAS: com a trava ligada (ou o flag),
+    # ação em BAIXA (M9<M21) é descartada — independe do valor "preso" na CONFIG.
+    evitar_baixa = cfg.evitar_tendencia_baixa or cfg.usar_trava
+    if evitar_baixa:
         mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
@@ -467,7 +469,7 @@ def scan_scanner(
             "dtes_disponiveis": dtes,
             "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
                         "dte_min": cfg.dte_min, "dte_max": cfg.dte_max,
-                        "evitar_baixa": cfg.evitar_tendencia_baixa,
+                        "evitar_baixa": evitar_baixa,
                         "max_por_ativo": cfg.max_por_ativo, "poe_max": poe_max},
         })
 
@@ -620,7 +622,7 @@ def scan(
     mask = m_dte
     if cfg.require_trend_up:
         mask = mask & (df["m9m21_trend"] == 1)
-    elif cfg.evitar_tendencia_baixa:
+    elif cfg.evitar_tendencia_baixa or cfg.usar_trava:   # trava de alta é altista
         mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
