@@ -118,9 +118,14 @@ TABS: dict[str, TabSpec] = {
 TAB_LOGS = _env("TAB_LOGS", "LOGS")
 TAB_HIST_ESCUDO = _env("TAB_HIST_ESCUDO", "ESCUDO_HISTORICO")
 TAB_HIST_RADAR = _env("TAB_HIST_RADAR", "RADAR_HISTORICO")
+TAB_MONITOR = _env("TAB_MONITOR", "MONITOR")
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
+
+# Cabeçalho da aba MONITOR (heartbeat / observabilidade — 1 linha sobrescrita)
+MONITOR_HEADER = ["UPDATED_AT", "STATUS", "MARKET", "DURATION_S",
+                  "ESCUDO_ALERTS", "RADAR_OPPS", "RUN_URL", "NOTES"]
 
 # ---------------------------------------------------------------------------
 # Mapa de colunas (logical_field -> nome real na aba-espelho)
@@ -277,6 +282,9 @@ RADAR = RadarCfg()
 # Dimensionamento de posição (0 = desabilita a sugestão de sizing no Radar)
 CAPITAL_DISPONIVEL = _env_float("CAPITAL_DISPONIVEL", 0.0)
 RISK_PER_TRADE = _env_float("RISK_PER_TRADE", 0.02)
+
+# Auditoria: True = registra TODOS os passos/leituras/cálculos na aba LOGS.
+AUDIT_VERBOSE = _env_bool("AUDIT_VERBOSE", True)
 
 
 def cols(table: str) -> dict[str, str]:
