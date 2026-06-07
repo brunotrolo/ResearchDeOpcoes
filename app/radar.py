@@ -123,13 +123,120 @@ def _underlying_signals(df_dados: pd.DataFrame | None) -> dict[str, dict]:
     return out
 
 
+# --- Tendência multi-horizonte: não vender PUT em ticker baixista -----------
+# Rótulos legíveis (web app/e-mail) para cada classificação.
+TREND_LABELS_PT = {
+    "ALTA": "ALTA confirmada", "NEUTRO": "Neutro",
+    "REPIQUE_BAIXA": "Repique em tendência de baixa", "BAIXA": "Tendência de BAIXA",
+}
+
+
+def _as_sign(v) -> int:
+    """Normaliza um sinal de tendência para {1, -1, 0}; desconhecido/NaN -> 0."""
+    try:
+        n = int(float(v))
+    except (TypeError, ValueError):
+        return 0
+    return 1 if n > 0 else (-1 if n < 0 else 0)
+
+
+def trend_score_label(short_term, middle_term, m9m21) -> dict:
+    """Combina os 3 horizontes (curto, médio, M9/M21) num score [-3..+3] e num
+    rótulo honesto. Médio em baixa OU ≥2 de 3 em baixa = BAIXA; curto↑ com médio↓
+    = REPIQUE_BAIXA (faca caindo com repique — o caso que o gate binário M9/M21 não
+    pega). É a base do bloqueio de entradas em ativo baixista."""
+    s, m, l = _as_sign(short_term), _as_sign(middle_term), _as_sign(m9m21)
+    score = s + m + l
+    n_baixa = sum(1 for v in (s, m, l) if v == -1)
+    n_alta = sum(1 for v in (s, m, l) if v == 1)
+    if m == -1 and s == 1:
+        label = "REPIQUE_BAIXA"
+    elif n_baixa >= 2 or m == -1:
+        label = "BAIXA"
+    elif n_alta >= 2 and m != -1:
+        label = "ALTA"
+    else:
+        label = "NEUTRO"
+    return {"trend_score": score, "trend_label": label}
+
+
+def _trend_blocks(label, m9m21, level: str) -> bool:
+    """Decide se a oportunidade é BLOQUEADA pelo gate de tendência (entrada).
+    `off` = legado (só M9<M21); `medio` (padrão) = bloqueia BAIXA/REPIQUE/M9<M21;
+    `estrito` = só passa ALTA confirmada."""
+    l = _as_sign(m9m21)
+    if level == "off":
+        return l == -1
+    if level == "estrito":
+        return label != "ALTA"
+    return label in ("BAIXA", "REPIQUE_BAIXA") or l == -1   # 'medio'
+
+
+def _entry_trend_drift(m9m21, sigma_gate):
+    """Drift de continuação da tendência p/ a PoE de entrada (sinal M9/M21 × σ).
+    None quando não há tendência definida ou vol — aí não há cenário a simular."""
+    l = _as_sign(m9m21)
+    if l == 0 or not sigma_gate:
+        return None
+    return l * float(sigma_gate)
+
+
+def _aplica_gate_tendencia(df, cfg, base_mask, audit):
+    """Aplica o gate de tendência multi-horizonte sobre `base_mask` (que já passou
+    pelos filtros anteriores). Bloqueia entradas em ticker baixista conforme
+    RADAR_TREND_GATE e registra no funil quantas (e por qual rótulo) caíram.
+
+    Mantém a compatibilidade: o gate só age quando alguma trava altista está ligada
+    (`require_trend_up`/`evitar_tendencia_baixa`/`usar_trava`); com tudo desligado, a
+    baixa entra (com aviso direcional), como antes."""
+    gate_ativo = cfg.require_trend_up or cfg.evitar_tendencia_baixa or cfg.usar_trava
+    mask = base_mask
+    bloqueadas, rotulos = 0, {}
+    if gate_ativo:
+        if cfg.require_trend_up:
+            novo = mask & (df["m9m21_trend"] == 1)
+        else:
+            level = getattr(cfg, "trend_gate", "medio")
+            blk = df.apply(lambda r: _trend_blocks(r.get("trend_label"),
+                                                   r.get("m9m21_trend"), level), axis=1)
+            novo = mask & ~blk
+        caiu = mask & ~novo
+        bloqueadas = int(caiu.sum())
+        if bloqueadas:
+            rotulos = df.loc[caiu, "trend_label"].value_counts().to_dict()
+        mask = novo
+    if audit is not None:
+        audit["apos_tendencia"] = int(mask.sum())
+        audit["tendencia_bloqueadas"] = bloqueadas
+        audit["tendencia_rotulos"] = rotulos
+        audit["trend_gate"] = (getattr(cfg, "trend_gate", "medio") if gate_ativo else "off")
+    return mask
+
+
+def _set_trend_cols(df) -> None:
+    """Calcula trend_label/trend_score por linha a partir dos 3 horizontes já no df."""
+    if df.empty:
+        df["trend_label"] = pd.Series(dtype=object)
+        df["trend_score"] = pd.Series(dtype=object)
+        return
+    tl = df.apply(lambda r: trend_score_label(r.get("short_term_trend"),
+                                              r.get("middle_term_trend"),
+                                              r.get("m9m21_trend")), axis=1)
+    df["trend_label"] = [d["trend_label"] for d in tl]
+    df["trend_score"] = [d["trend_score"] for d in tl]
+
+
 def _motivo_radar(rec: dict) -> str:
     """Texto curto explicando POR QUE o ativo foi recomendado."""
     partes = []
-    t = rec.get("m9m21_trend")
-    if t == 1:
+    rotulo = rec.get("trend_label")
+    if rotulo == "ALTA":
+        partes.append("Tendência de ALTA confirmada")
+    elif rotulo in ("BAIXA", "REPIQUE_BAIXA"):
+        partes.append(TREND_LABELS_PT[rotulo])
+    elif rec.get("m9m21_trend") == 1:
         partes.append("Tendência de ALTA (M9>M21)")
-    elif t == -1:
+    elif rec.get("m9m21_trend") == -1:
         partes.append("Tendência de baixa (M9<M21)")
     if rec.get("short_term_trend") == 1 and rec.get("middle_term_trend") == 1:
         partes.append("alta no curto e médio prazo")
@@ -433,9 +540,12 @@ def scan_scanner(
     iv_rank = _iv_rank_map(df_dados_ativos)
     df["iv_rank"] = pd.to_numeric(
         df["ticker"].map(lambda t: iv_rank.get(str(t).strip().upper())), errors="coerce")
-    # Tendência da ação-mãe (M9>M21): 1 alta, -1 baixa, None = desconhecida.
-    df["m9m21_trend"] = df["ticker"].map(
-        lambda t: (sig.get(str(t).strip().upper()) or {}).get("m9m21_trend"))
+    # Tendência da ação-mãe em 3 horizontes (curto/médio/M9M21) + score OpLab — base
+    # do gate que BLOQUEIA entrada em ticker baixista (não vender PUT na queda).
+    for campo in ("m9m21_trend", "short_term_trend", "middle_term_trend", "oplab_score"):
+        df[campo] = df["ticker"].map(
+            lambda t, c=campo: (sig.get(str(t).strip().upper()) or {}).get(c))
+    _set_trend_cols(df)
 
     premio_ok = df["premio"].map(lambda p: _premio_valido(p, None))
 
@@ -447,12 +557,6 @@ def scan_scanner(
     m_ratio = m_iv & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
     m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
     m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
-    mask = m_dte
-    # Venda de PUT / Trava de Alta são ALTISTAS: com a trava ligada (ou o flag),
-    # ação em BAIXA (M9<M21) é descartada — independe do valor "preso" na CONFIG.
-    evitar_baixa = cfg.evitar_tendencia_baixa or cfg.usar_trava
-    if evitar_baixa:
-        mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
         dtes = sorted({int(d) for d in df.loc[m_prem, "dte"].dropna().tolist()})
@@ -465,14 +569,15 @@ def scan_scanner(
             "ratio_ok": int(m_ratio.sum()),
             "volume_ok": int(m_vol.sum()),
             "dte_ok": int(m_dte.sum()),
-            "apos_tendencia": int(mask.sum()),
             "dtes_disponiveis": dtes,
             "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
                         "dte_min": cfg.dte_min, "dte_max": cfg.dte_max,
-                        "evitar_baixa": evitar_baixa,
                         "max_por_ativo": cfg.max_por_ativo, "poe_max": poe_max},
         })
 
+    # Gate de tendência multi-horizonte: bloqueia entradas baixistas de fato
+    # (BAIXA/REPIQUE/M9<M21, conforme RADAR_TREND_GATE) e audita o que caiu.
+    mask = _aplica_gate_tendencia(df, cfg, m_dte, audit)
     df = df[mask].copy()
 
     # Universo monitorado (DADOS_ATIVOS), igual ao scan da aba de lucros.
@@ -487,16 +592,22 @@ def scan_scanner(
     # melhor PoE disponível, para nunca recomendar PUT acima do risco configurado.
     if not df.empty:
         if mc is not None and vol_map:
-            gates, ivs, reals = [], [], []
+            gates, ivs, reals, tends = [], [], [], []
             for _, r in df.iterrows():
                 vm = vol_map.get(str(r["ticker"]).strip().upper(), {})
                 res = montecarlo.poe_resumo(mc, r["spot"], r["strike"], r["dte"], vm.get("iv"), vm.get("real"))
                 gates.append(res["poe_mc_gate"])
                 ivs.append(res["poe_mc_iv"])
                 reals.append(res["poe_mc_real"])
+                # PoE no cenário de CONTINUAÇÃO DA TENDÊNCIA (entrada baixista).
+                sg = max([s for s in (vm.get("iv"), vm.get("real")) if s], default=None)
+                dft = _entry_trend_drift(r.get("m9m21_trend"), sg)
+                tends.append(mc.poe_put(r["spot"], r["strike"], r["dte"], sg, drift=dft)
+                             if (sg and dft is not None) else None)
             df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
             df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
             df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+            df["poe_mc_tendencia"] = pd.to_numeric(tends, errors="coerce")
             df["poe_fonte"] = "Monte Carlo"
             # Onde o MC não tem vol (ativo fora de DADOS_ATIVOS), cai p/ a POE da
             # planilha — assim o teto de PoE não fica "cego" nessas linhas.
@@ -506,12 +617,19 @@ def scan_scanner(
                 df.loc[sem_mc, "poe_fonte"] = "OpLab"
         else:
             df["poe_mc_gate"] = df["poe"]  # POE risk-neutral da OpLab
+            df["poe_mc_tendencia"] = float("nan")
             df["poe_fonte"] = "OpLab"
         if audit is not None:
             validos = [g for g in df["poe_mc_gate"].tolist() if g is not None and not _isnan(g)]
             audit["poe_min"] = round(min(validos), 4) if validos else None
         if poe_max is not None:
             df = df[df["poe_mc_gate"].isna() | (df["poe_mc_gate"] <= poe_max)]
+            # 2º porteiro: se a PoE com a tendência de baixa estoura o teto, remove
+            # (pega o baixista que o rótulo qualitativo não pegou).
+            antes_t = len(df)
+            df = df[df["poe_mc_tendencia"].isna() | (df["poe_mc_tendencia"] <= poe_max)]
+            if audit is not None:
+                audit["tendencia_poe_bloqueou"] = int(antes_t - len(df))
         if audit is not None:
             audit["apos_montecarlo"] = int(len(df))
 
@@ -547,16 +665,22 @@ def scan_scanner(
         rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
+        rec.update(trend_score_label(rec.get("short_term_trend"),
+                                     rec.get("middle_term_trend"), rec.get("m9m21_trend")))
         rec["premio_estimado"] = False  # scanner = CLOSE real, nunca estimado
-        # Prob. de TOQUE + dossiê COMPLETO da simulação (auditoria Monte Carlo).
+        # TOQUE + PoE no cenário de tendência + dossiê COMPLETO (auditoria Monte Carlo).
         if mc is not None and vol_map:
             vm = vol_map.get(str(rec.get("ticker", "")).strip().upper(), {})
-            full = montecarlo.simular_completo(mc, spot, strike, rec.get("dte"),
-                                               vm.get("iv"), vm.get("real"), tipo="PUT")
+            sg = max([s for s in (vm.get("iv"), vm.get("real")) if s], default=None)
+            full = montecarlo.simular_completo(
+                mc, spot, strike, rec.get("dte"), vm.get("iv"), vm.get("real"), tipo="PUT",
+                drift_tendencia=_entry_trend_drift(rec.get("m9m21_trend"), sg))
             rec["toque_gate"] = full.get("toque_gate")
+            rec["toque_tendencia"] = full.get("toque_tendencia")
+            rec["poe_mc_tendencia"] = full.get("poe_mc_tendencia")
             if full.get("sigma_gate") is not None:
                 rec["mc_audit"] = full
-        # Aviso direcional: vender PUT em ação caindo é apostar contra a maré.
+        # Aviso direcional (caso a baixa tenha passado, ex.: gate em 'off').
         if rec.get("m9m21_trend") == -1:
             rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
         rec["motivo"] = _motivo_radar(rec)
@@ -615,17 +739,20 @@ def scan(
     for t, legs in _chain_from_lucros(df).items():
         chain.setdefault(t, legs)
 
+    # Sinais do ativo-mãe (curto/médio + score) p/ o gate de tendência multi-horizonte.
+    # O M9M21 já vem da própria aba de lucros (_normalize).
+    sig = _underlying_signals(df_dados_ativos)
+    for campo in ("short_term_trend", "middle_term_trend", "oplab_score"):
+        df[campo] = df["ticker"].map(
+            lambda t, c=campo: (sig.get(str(t).strip().upper()) or {}).get(c))
+    _set_trend_cols(df)
+
     # Máscaras cumulativas, para registrar o funil estágio a estágio.
     m_put = df["category"] == cfg.option_type.upper()
     m_iv = m_put & (df["iv_rank"] >= cfg.iv_rank_min)
     m_ratio = m_iv & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
     m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
     m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
-    mask = m_dte
-    if cfg.require_trend_up:
-        mask = mask & (df["m9m21_trend"] == 1)
-    elif cfg.evitar_tendencia_baixa or cfg.usar_trava:   # trava de alta é altista
-        mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
         audit.update({
@@ -635,11 +762,12 @@ def scan(
             "ratio_ok": int(m_ratio.sum()),
             "volume_ok": int(m_vol.sum()),
             "dte_ok": int(m_dte.sum()),
-            "apos_tendencia": int(mask.sum()),
             "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
                         "dte_min": cfg.dte_min, "dte_max": cfg.dte_max},
         })
 
+    # Gate de tendência multi-horizonte: bloqueia entradas baixistas de fato.
+    mask = _aplica_gate_tendencia(df, cfg, m_dte, audit)
     df = df[mask].copy()
 
     # Filtro de spread bid-ask por opção (liquidez fina) — só se habilitado e
@@ -666,21 +794,30 @@ def scan(
 
     # Filtro Monte Carlo: só mantém PUT com prob. de exercício <= poe_max.
     if mc is not None and vol_map and not df.empty:
-        gates, ivs, reals = [], [], []
+        gates, ivs, reals, tends = [], [], [], []
         for _, r in df.iterrows():
             vm = vol_map.get(str(r["ticker"]).strip().upper(), {})
             res = montecarlo.poe_resumo(mc, r["spot"], r["strike"], r["dte"], vm.get("iv"), vm.get("real"))
             gates.append(res["poe_mc_gate"])
             ivs.append(res["poe_mc_iv"])
             reals.append(res["poe_mc_real"])
+            sg = max([s for s in (vm.get("iv"), vm.get("real")) if s], default=None)
+            dft = _entry_trend_drift(r.get("m9m21_trend"), sg)
+            tends.append(mc.poe_put(r["spot"], r["strike"], r["dte"], sg, drift=dft)
+                         if (sg and dft is not None) else None)
         df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
         df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
         df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+        df["poe_mc_tendencia"] = pd.to_numeric(tends, errors="coerce")
         if audit is not None:
             validos = [g for g in gates if g is not None]
             audit["poe_min"] = round(min(validos), 4) if validos else None
         if poe_max is not None:
             df = df[df["poe_mc_gate"].isna() | (df["poe_mc_gate"] <= poe_max)]
+            antes_t = len(df)
+            df = df[df["poe_mc_tendencia"].isna() | (df["poe_mc_tendencia"] <= poe_max)]
+            if audit is not None:
+                audit["tendencia_poe_bloqueou"] = int(antes_t - len(df))
         if audit is not None:
             audit["apos_montecarlo"] = int(len(df))
 
@@ -708,20 +845,25 @@ def scan(
         audit["final"] = len(records)
 
     # Enriquece cada oportunidade com distância e sinais do ativo-mãe (o "porquê").
-    sig = _underlying_signals(df_dados_ativos)
     for rec in records:
         spot, strike = rec.get("spot"), rec.get("strike")
         rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
+        rec.update(trend_score_label(rec.get("short_term_trend"),
+                                     rec.get("middle_term_trend"), rec.get("m9m21_trend")))
         if rec.get("m9m21_trend") == -1:
             rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
-        # Prob. de TOQUE + dossiê COMPLETO da simulação (auditoria Monte Carlo).
+        # TOQUE + PoE no cenário de tendência + dossiê COMPLETO (auditoria Monte Carlo).
         if mc is not None and vol_map:
             vm = vol_map.get(str(rec.get("ticker", "")).strip().upper(), {})
-            full = montecarlo.simular_completo(mc, spot, strike, rec.get("dte"),
-                                               vm.get("iv"), vm.get("real"), tipo="PUT")
+            sg = max([s for s in (vm.get("iv"), vm.get("real")) if s], default=None)
+            full = montecarlo.simular_completo(
+                mc, spot, strike, rec.get("dte"), vm.get("iv"), vm.get("real"), tipo="PUT",
+                drift_tendencia=_entry_trend_drift(rec.get("m9m21_trend"), sg))
             rec["toque_gate"] = full.get("toque_gate")
+            rec["toque_tendencia"] = full.get("toque_tendencia")
+            rec["poe_mc_tendencia"] = full.get("poe_mc_tendencia")
             if full.get("sigma_gate") is not None:
                 rec["mc_audit"] = full
         rec["motivo"] = _motivo_radar(rec)

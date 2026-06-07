@@ -32,17 +32,21 @@ class MonteCarloSimulator:
         self.seed = seed
         self.drift = float(drift)
 
-    def _terminal(self, spot: float, sigma_anual: float, dte_dias: float) -> np.ndarray:
+    def _terminal(self, spot: float, sigma_anual: float, dte_dias: float, drift=None) -> np.ndarray:
+        mu = self.drift if drift is None else float(drift)
         T = max(float(dte_dias), 0.0) / 365.0
         rng = np.random.default_rng(self.seed)
         z = rng.standard_normal(self.n)
-        return spot * np.exp((self.drift - 0.5 * sigma_anual ** 2) * T + sigma_anual * math.sqrt(T) * z)
+        return spot * np.exp((mu - 0.5 * sigma_anual ** 2) * T + sigma_anual * math.sqrt(T) * z)
 
-    def poe_put(self, spot, strike, dte_dias, sigma_anual) -> float | None:
-        """P(S_T < strike) por simulação (PoE de PUT vendida). None se faltar dado."""
+    def poe_put(self, spot, strike, dte_dias, sigma_anual, drift=None) -> float | None:
+        """P(S_T < strike) por simulação (PoE de PUT vendida). None se faltar dado.
+
+        `drift` sobrepõe o drift do simulador — usado para o cenário de
+        CONTINUAÇÃO DA TENDÊNCIA na entrada (vender PUT em ação caindo)."""
         if not (spot and strike and sigma_anual and dte_dias and dte_dias > 0):
             return None
-        return float(np.mean(self._terminal(spot, sigma_anual, dte_dias) < strike))
+        return float(np.mean(self._terminal(spot, sigma_anual, dte_dias, drift=drift) < strike))
 
     def poe_put_fechada(self, spot, strike, dte_dias, sigma_anual) -> float | None:
         """P(S_T < strike) pela fórmula lognormal fechada = N(-d2). Para validação."""
@@ -161,6 +165,13 @@ def simular_completo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual,
     toque = toque_resumo(sim, spot, strike, dte_dias, iv_anual, real_anual,
                          tipo=tipo, drift_tendencia=drift_tendencia)
     sig_gate = max([s for s in (iv_anual, real_anual) if s], default=None)
+    # PoE terminal no cenário de CONTINUAÇÃO DA TENDÊNCIA (drift != 0), na mesma
+    # vol conservadora do gate — simétrico ao toque_tendencia. Para a entrada do
+    # Radar: "se a tendência seguir, a chance de exercício vira Y%".
+    poe_tend = None
+    if drift_tendencia is not None and sig_gate:
+        p = sim.poe_put(spot, strike, dte_dias, sig_gate, drift=drift_tendencia)
+        poe_tend = None if p is None else (1.0 - p if eh_call else p)
     cen = sim.cenarios_preco(spot, sig_gate, dte_dias) if sig_gate else None
     # Validação independente: fórmula fechada N(-d2) com a IV, na MESMA convenção
     # do poe_mc_iv (PUT = P(S_T<K); CALL = complemento). O MC deve convergir a ela.
@@ -177,6 +188,7 @@ def simular_completo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual,
         "n_cenarios": sim.n, "seed": sim.seed,
         # --- PoE terminal + validação fechada ---
         "poe_mc_iv": p_iv, "poe_mc_real": poe.get("poe_mc_real"), "poe_mc_gate": poe.get("poe_mc_gate"),
+        "poe_mc_tendencia": poe_tend,
         "poe_fechada_iv": (round(fechada, 4) if fechada is not None else None), "erro_vs_fechada": erro,
         # --- Toque (primeira passagem) ---
         "toque_iv": toque.get("toque_iv"), "toque_real": toque.get("toque_real"),

@@ -287,6 +287,19 @@ function _porQueRadar(g, temTrava) {
     const pl = poeMc <= 25 ? 'baixa — ideia confortável' : poeMc <= 45 ? 'moderada' : 'alta — escolha com cautela';
     L.push("<b>Chance de ser exercida: " + _fmtNum(poeMc, 0) + "%</b> (PoE-MC na vol. máxima) — " + pl + ".");
   }
+  // Tendência: rótulo multi-horizonte + a PoE se a tendência continuar (o número
+  // que diz se você está entrando contra a maré). Baixistas já foram bloqueadas.
+  const tlab = String(g('TREND_LABEL') || '').toUpperCase();
+  const poeT = _pct100(g('POE_TENDENCIA'));
+  if (tlab) {
+    const nome = { ALTA: 'tendência de ALTA confirmada (curto/médio/M9-M21)', NEUTRO: 'tendência neutra',
+      REPIQUE_BAIXA: '⚠️ repique em tendência de baixa', BAIXA: '⛔ tendência de BAIXA' }[tlab] || tlab;
+    let extra = '';
+    if (poeT != null && poeMc != null)
+      extra = " — PoE " + _fmtNum(poeMc, 0) + "%; " + _fmtNum(poeT, 0) + "% se a "
+        + (poeT > poeMc + 0.5 ? 'baixa' : 'alta') + " continuar";
+    L.push("<b>Tendência</b>: " + nome + extra + ".");
+  }
   if (dist != null) L.push("<b>Margem</b>: strike " + (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + "% vs spot antes de entrar no prejuízo.");
   if (iv != null) {
     const il = iv >= 70 ? 'alta (prêmio caro — bom momento para vender)' : iv >= 40 ? 'mediana' : 'baixa (prêmio magro)';
@@ -375,6 +388,16 @@ function _travaBlock(g) {
     ]) + "</div>";
 }
 
+/** Chip de tendência da ação-mãe (rótulo multi-horizonte do gate de entrada).
+ *  Como o motor BLOQUEIA baixistas, o que sobra é ✅ Alta / ➖ Neutro — sinal de
+ *  confiança de que você não está entrando contra a maré. */
+function _trendChip(label) {
+  var m = { ALTA: ['#dcfce7', '#166534', '✅ Alta'], NEUTRO: ['#f1f5f9', '#334155', '➖ Neutro'],
+    REPIQUE_BAIXA: ['#ffedd5', '#9a3412', '⚠️ Repique↓'], BAIXA: ['#fee2e2', '#991b1b', '⛔ Baixa'] };
+  var c = m[String(label || '').toUpperCase()];
+  return c ? "<span class='chip' style='background:" + c[0] + ";color:" + c[1] + ";border-color:" + c[0] + "'>" + c[2] + "</span>" : '';
+}
+
 function _cardRadar() {
   const { idx, rows } = _readPanel(ABA_PRAD);
   if (!rows.length) return _section('📡 Oportunidades', '',
@@ -387,7 +410,8 @@ function _cardRadar() {
     const dist = _num(g('DIST_PCT'));
     const distTxt = dist == null ? '—' : (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + '%';
     const aprox = String(g('PREMIO_FONTE') || '').indexOf('estim') >= 0 ? '≈ ' : '';
-    const chips = _chip('Strike', _fmtMoney(g('STRIKE')))
+    const chips = _trendChip(g('TREND_LABEL'))
+      + _chip('Strike', _fmtMoney(g('STRIKE')))
       + _chip('Spot', _fmtMoney(g('SPOT')))
       + _chip('Dist', distTxt)
       + _chip('IV', _fmtNum(g('IV_RANK'), 0))
