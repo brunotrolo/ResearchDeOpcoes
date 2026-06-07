@@ -3,6 +3,10 @@ name: CI
 # Roda os testes a cada push na main e em todo Pull Request.
 # Não usa segredos: os testes operam sobre DataFrames sintéticos (sem rede/planilha).
 
+env:
+  # Opta pelo Node 24 já agora (silencia o aviso de depreciação do Node 20).
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   push:
     branches: [ main ]

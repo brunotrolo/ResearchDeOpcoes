@@ -11,6 +11,11 @@ name: Motor (Escudo + Radar)
 #   OPLAB_TOKEN, SPREADSHEET_ID, GOOGLE_CREDENTIALS_JSON (conteúdo do JSON),
 #   EMAIL_USER, EMAIL_APP_PASSWORD, ALERT_RECIPIENTS
 
+env:
+  # Opta pelo Node 24 já agora — silencia o aviso de depreciação do Node 20
+  # (vira padrão em 16/06/2026). Recomendado pelo próprio aviso do GitHub.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   schedule:
     - cron: "0 13-21 * * 1-5"   # 10:00–18:00 BRT, seg–sex
