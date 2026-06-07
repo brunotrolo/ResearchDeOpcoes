@@ -1,6 +1,7 @@
-name: CI
+name: Testes (CI)
 
-# Roda os testes a cada push na main e em todo Pull Request.
+# Roda os 30 testes automaticamente a cada push na main e em todo Pull Request.
+# Também pode ser disparado manualmente pelo botão "Run workflow" (aba Actions).
 # Não usa segredos: os testes operam sobre DataFrames sintéticos (sem rede/planilha).
 
 env:
@@ -11,6 +12,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  workflow_dispatch:        # botão "Run workflow" para rodar os testes na hora
 
 jobs:
   testes:
