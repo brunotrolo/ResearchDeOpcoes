@@ -108,9 +108,9 @@ def test_portfolio_hhi_e_exposicao_ibov():
     rows = [_banco("A", "BBAS3", "R$ 20,00", "R$ 22,00"),
             _banco("B", "BBDC4", "R$ 18,00", "R$ 20,00"),
             _banco("C", "ITUB4", "R$ 30,00", "R$ 33,00")]
-    correl = pd.DataFrame([dict(TICKER="BBAS3", CORREL_VALUE="0.85"),
-                           dict(TICKER="BBDC4", CORREL_VALUE="0.84"),
-                           dict(TICKER="ITUB4", CORREL_VALUE="0.80")])
+    correl = pd.DataFrame([dict(TICKER="BBAS3", CORREL_VALUE="0,85"),
+                           dict(TICKER="BBDC4", CORREL_VALUE="0,84"),
+                           dict(TICKER="ITUB4", CORREL_VALUE="0,80")])
     port = {a["option_ticker"]: a for a in escudo.analyze_portfolio(_df(rows), correl)}
     assert "PORTFOLIO_HHI" in port and port["PORTFOLIO_HHI"]["nivel"] == "ALERTA"
     assert "PORTFOLIO_IBOV" in port and port["PORTFOLIO_IBOV"]["nivel"] == "ALERTA"

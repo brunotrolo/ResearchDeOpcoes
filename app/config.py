@@ -105,12 +105,12 @@ class TabSpec:
 
 
 TABS: dict[str, TabSpec] = {
-    # PAINEL_ATIVAS e DADOS_ATIVOS estão em pt-BR (vírgula decimal, ponto de milhar).
-    "ativas":       TabSpec(_env("TAB_ATIVAS", "Painel_Ativas"),                _env_int("TAB_ATIVAS_HEADER_ROW", 1),       _env("TAB_ATIVAS_DECIMAL", ",")),
-    "lucros":       TabSpec(_env("TAB_LUCROS", "SELECAO_OPCOES_MAIORES_LUCROS"), _env_int("TAB_LUCROS_HEADER_ROW", 1),       _env("TAB_LUCROS_DECIMAL", ".")),
-    "volumes":      TabSpec(_env("TAB_VOLUMES", "SELECAO_MAIORES_VOLUMES"),     _env_int("TAB_VOLUMES_HEADER_ROW", 1),       _env("TAB_VOLUMES_DECIMAL", ".")),
-    "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1),         _env("TAB_M9M21_DECIMAL", ".")),
-    "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ".")),
+    # A planilha-espelho inteira está em pt-BR (vírgula decimal, ponto de milhar).
+    "ativas":       TabSpec(_env("TAB_ATIVAS", "PAINEL_ATIVAS"),                 _env_int("TAB_ATIVAS_HEADER_ROW", 1),       _env("TAB_ATIVAS_DECIMAL", ",")),
+    "lucros":       TabSpec(_env("TAB_LUCROS", "SELECAO_OPCOES_MAIORES_LUCROS"), _env_int("TAB_LUCROS_HEADER_ROW", 1),       _env("TAB_LUCROS_DECIMAL", ",")),
+    "volumes":      TabSpec(_env("TAB_VOLUMES", "SELECAO_MAIORES_VOLUMES"),     _env_int("TAB_VOLUMES_HEADER_ROW", 1),       _env("TAB_VOLUMES_DECIMAL", ",")),
+    "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1),         _env("TAB_M9M21_DECIMAL", ",")),
+    "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ",")),
     "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
 }
 
