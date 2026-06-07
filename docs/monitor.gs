@@ -228,13 +228,21 @@ function _cardEscudo() {
 
 function _travaBlock(g) {
   if (g('TRAVA_VENDE_STRIKE') === '' || g('TRAVA_VENDE_STRIKE') == null) return '';
+  // Códigos das DUAS pernas (para lançar a ordem direto na corretora).
+  var vOpt = g('TRAVA_VENDE_OPCAO'), cOpt = g('TRAVA_COMPRA_OPCAO');
+  var vTag = vOpt ? " <span class='opc'>" + esc(vOpt) + "</span>" : '';
+  var cTag = cOpt ? " <span class='opc'>" + esc(cOpt) + "</span>" : '';
+  // Break-even da trava de alta = strike vendido − crédito líquido recebido.
+  var be = (_num(g('TRAVA_VENDE_STRIKE')) != null && _num(g('TRAVA_CREDITO')) != null)
+    ? _num(g('TRAVA_VENDE_STRIKE')) - _num(g('TRAVA_CREDITO')) : null;
   return "<div class='trava'><div class='travah'>🛡️ Trava de Alta com PUT <span class='hint'>(risco limitado)</span></div>"
-    + "<div class='leg'>🔴 <b>Vende</b> PUT " + _fmtMoney(g('TRAVA_VENDE_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_VENDE_PREMIO')) + "</div>"
-    + "<div class='leg'>🟢 <b>Compra</b> PUT " + _fmtMoney(g('TRAVA_COMPRA_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_COMPRA_PREMIO')) + "</div>"
+    + "<div class='leg'>🔴 <b>Vende</b> PUT" + vTag + " · strike " + _fmtMoney(g('TRAVA_VENDE_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_VENDE_PREMIO')) + "</div>"
+    + "<div class='leg'>🟢 <b>Compra</b> PUT" + cTag + " · strike " + _fmtMoney(g('TRAVA_COMPRA_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_COMPRA_PREMIO')) + "</div>"
     + _grid([
       ['Crédito líq.', _fmtMoney(g('TRAVA_CREDITO'))],
       ['Risco máx.', _fmtMoney(g('TRAVA_RISCO_MAX'))],
       ['Retorno/Risco', _fmtPct(_num(g('TRAVA_RETORNO_RISCO')) == null ? null : _num(g('TRAVA_RETORNO_RISCO')) * 100, 0)],
+      ['Break-even', be == null ? '—' : _fmtMoney(be)],
     ]) + "</div>";
 }
 
@@ -376,7 +384,8 @@ function _css() {
     + ".item{background:#fff;border:1px solid #e5e7eb;border-left:5px solid #cbd5e1;border-radius:14px;padding:14px 16px;box-shadow:0 1px 3px rgba(2,6,23,.06)}"
     + ".item .row1{display:flex;align-items:center;flex-wrap:wrap;gap:8px}"
     + ".tk{font-weight:800;font-size:16px}"
-    + ".op{color:#64748b;font-size:13px}"
+    + ".op{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a;font-size:13px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:1px 7px}"
+    + ".opc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:0 6px}"
     + ".sub{color:#64748b;font-size:12.5px;margin-top:3px}"
     + ".nivel{margin-left:auto;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.3px}"
     + ".tag{margin-left:auto;font-size:11.5px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:999px;padding:3px 10px}"
