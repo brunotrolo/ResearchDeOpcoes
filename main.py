@@ -54,6 +54,13 @@ def _pct(v) -> float:
     return float(str(v).replace(",", ".")) / 100.0
 
 
+def _fonte(v) -> str:
+    s = str(v).strip().lower()
+    if s not in {"scanner", "lucros", "auto"}:
+        raise ValueError(f"fonte inválida: {v}")
+    return s
+
+
 # CHAVE da aba CONFIG -> (campo da dataclass, conversor, min, max). O min/max
 # protege contra valores absurdos (ex.: "1.02" que o Sheets converteu em data).
 _DEFAULTS = {c[0]: c[1] for c in config.DEFAULT_CONFIG}
@@ -71,6 +78,7 @@ _ESCUDO_MAP = {
     "ESCUDO_IBOV_CORREL_MIN": ("ibov_correl_threshold", _num, 0.0, 1.0),
 }
 _RADAR_MAP = {
+    "RADAR_FONTE": ("fonte", _fonte, None, None),
     "RADAR_IV_RANK_MIN": ("iv_rank_min", _num, 0.0, 100.0),
     "RADAR_RATIO_MIN": ("spot_strike_ratio_min", _num, 1.0, 3.0),
     "RADAR_DTE_MIN": ("dte_min", _int, 0, 730),
@@ -259,20 +267,40 @@ def _log_escudo_alerta(log: Logbook, a: dict) -> None:
 
 def _log_radar_funil(log: Logbook, f: dict) -> None:
     fl = f.get("filtros", {})
-    log.info("RADAR", f"Funil — partida: {f.get('total', 0)} opções na aba de lucros")
-    log.info("RADAR", f"Funil 1/7 — categoria PUT: {f.get('put', 0)} de {f.get('total', 0)}")
-    log.info("RADAR", f"Funil 2/7 — IV Rank ≥ {fl.get('iv_rank_min')}: {f.get('iv_rank_ok', 0)} sobram")
-    log.info("RADAR", f"Funil 3/7 — distância spot/strike ≥ {fl.get('ratio_min')}: {f.get('ratio_ok', 0)} sobram")
-    log.info("RADAR", f"Funil 4/7 — liquidez (volume mínimo): {f.get('volume_ok', 0)} sobram")
-    log.info("RADAR", f"Funil 5/7 — DTE entre {fl.get('dte_min')} e {fl.get('dte_max')} dias: {f.get('dte_ok', 0)} sobram")
-    log.info("RADAR", f"Funil 6/7 — tendência/whitelist: {f.get('apos_tendencia', 0)} sobram")
+    scanner = f.get("fonte") == "scanner"
+    partida = "linhas no SCANNER_OPCOES" if scanner else "opções na aba de lucros"
+    log.info("RADAR", f"Funil — partida: {f.get('total', 0)} {partida}")
+    log.info("RADAR", f"Funil 1 — categoria PUT: {f.get('put', 0)} de {f.get('total', 0)}")
+    if scanner:
+        log.info("RADAR", f"Funil 2 — com prêmio REAL (CLOSE) válido: {f.get('premio_ok', 0)} sobram")
+        log.info("RADAR", f"Funil 3 — IV Rank ≥ {fl.get('iv_rank_min')} (ou ativo fora de DADOS_ATIVOS): "
+                          f"{f.get('iv_rank_ok', 0)} sobram")
+    else:
+        log.info("RADAR", f"Funil 2 — IV Rank ≥ {fl.get('iv_rank_min')}: {f.get('iv_rank_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 4 — distância spot/strike ≥ {fl.get('ratio_min')}: {f.get('ratio_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 5 — liquidez (volume mínimo): {f.get('volume_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 6 — DTE entre {fl.get('dte_min')} e {fl.get('dte_max')} dias: {f.get('dte_ok', 0)} sobram")
+    # Diagnóstico crucial: quais DTEs o scanner realmente trouxe. Se o funil 6
+    # zerou, quase sempre é a janela RADAR_DTE_MIN/MAX fora do que foi baixado.
+    dtes = f.get("dtes_disponiveis")
+    if dtes is not None:
+        if not dtes:
+            log.warn("RADAR", "SCANNER_OPCOES não tem nenhuma PUT com prêmio — verifique o CLOSE da planilha")
+        elif f.get("dte_ok", 0) == 0:
+            log.warn("RADAR", f"NENHUMA opção no DTE pedido. O scanner só tem estes DTEs: {dtes}. "
+                              f"Ajuste RADAR_DTE_MIN/RADAR_DTE_MAX para incluir {min(dtes)}–{max(dtes)}, "
+                              f"ou alimente o scanner com os vencimentos que você opera.")
+        else:
+            log.info("RADAR", f"DTEs disponíveis no scanner: {dtes}")
+    log.info("RADAR", f"Funil 7 — tendência/whitelist: {f.get('apos_tendencia', 0)} sobram")
     if "apos_montecarlo" in f:
-        log.info("RADAR", f"Funil 7/7 — Monte Carlo (PoE ≤ máx): {f.get('apos_montecarlo', 0)} sobram "
+        fonte_poe = "Monte Carlo" if not scanner else "Monte Carlo / POE da planilha"
+        log.info("RADAR", f"Funil 8 — {fonte_poe} (PoE ≤ máx): {f.get('apos_montecarlo', 0)} sobram "
                           f"(menor PoE visto: {_pctg(f.get('poe_min'))})")
     log.info("RADAR", f"Funil — FINAL: {f.get('final', 0)} oportunidade(s) selecionada(s) (Top {f.get('final', 0)})")
     log.info("RADAR", f"Prêmios: {f.get('premios_reais', 0)} REAIS (scanner) · "
                       f"{f.get('premios_estimados', 0)} estimados (≈) · travas montadas: {f.get('travas_montadas', 0)}",
-             {"scanner_opcoes_indexadas": f.get("scanner_opcoes"),
+             {"fonte": f.get("fonte"), "scanner_linhas_indexadas": f.get("scanner_opcoes"),
               "scanner_puts_na_cadeia": f.get("scanner_puts_na_cadeia")})
 
 
@@ -288,7 +316,10 @@ def _log_radar_opp(log: Logbook, o: dict) -> None:
                f"risco máx R$ {_g(tr['risco_max'])}, retorno/risco {_pctg(tr.get('retorno_risco'))}")
     else:
         det = f"SEM trava: {o.get('trava_motivo', '—')} (recomenda PUT a seco)"
-    log.info("RADAR", f"Oportunidade {cab}", {"recomendacao": det, "porque": o.get("motivo")})
+    ctx = {"recomendacao": det, "porque": o.get("motivo")}
+    if o.get("premio_estimado"):
+        ctx["por_que_estimado"] = o.get("premio_diag")
+    log.info("RADAR", f"Oportunidade {cab}", ctx)
 
 
 def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
@@ -380,8 +411,19 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     sim, poe_max = _mc_setup(cfg_sheet)
     vmap = radar.build_vol_map(df_dados) if sim is not None else None
     funil: dict = {}
-    opps = radar.scan(df_lucros, df_volumes, df_dados, cfg=radar_cfg, audit=funil,
-                      mc=sim, vol_map=vmap, poe_max=poe_max, df_scanner=df_scanner)
+    tem_scanner = df_scanner is not None and not df_scanner.empty
+    usar_scanner = radar_cfg.fonte == "scanner" or (radar_cfg.fonte == "auto" and tem_scanner)
+    if usar_scanner and not tem_scanner:
+        log.warn("RADAR", "RADAR_FONTE=scanner, mas SCANNER_OPCOES está vazio — caindo para a aba de lucros")
+        usar_scanner = False
+    if usar_scanner:
+        log.info("RADAR", "Fonte: SCANNER_OPCOES (prêmio = CLOSE REAL da planilha; Trava no MESMO vencimento)")
+        opps = radar.scan_scanner(df_scanner, df_dados, cfg=radar_cfg, audit=funil,
+                                  mc=sim, vol_map=vmap, poe_max=poe_max)
+    else:
+        log.info("RADAR", "Fonte: SELECAO_OPCOES_MAIORES_LUCROS (prêmio do scanner por opção, quando casar)")
+        opps = radar.scan(df_lucros, df_volumes, df_dados, cfg=radar_cfg, audit=funil,
+                          mc=sim, vol_map=vmap, poe_max=poe_max, df_scanner=df_scanner)
     _log_radar_funil(log, funil)
     summary["radar_opps"] = len(opps)
     # Auditoria detalhada: uma linha por oportunidade, com prêmio, fonte e Trava.
