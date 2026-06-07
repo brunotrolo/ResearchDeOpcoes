@@ -244,3 +244,27 @@ def test_scan_scanner_poe_da_planilha_filtra():
     tickers = [o["option_ticker"] for o in opps]
     assert "ARRISCADA" not in tickers                        # POE 0,40 > 0,25
     assert "SEGURA" in tickers
+
+
+def test_fmt_expiry_serial_com_fracao_nao_estoura():
+    """EXPIRY como serial do Sheets COM fração de tempo (46192,5833) não pode
+    estourar a data — era a causa do 'date value out of range' no motor real."""
+    assert radar._fmt_expiry("46192.583333") == "19/06/2026"   # serial+hora (US)
+    assert radar._fmt_expiry("46192,583333") == "19/06/2026"   # serial+hora (pt-BR)
+    assert radar._fmt_expiry("46.192,00") == "19/06/2026"      # pt-BR milhar
+    assert radar._fmt_expiry("46,192.00") == "19/06/2026"      # US milhar
+    assert radar._fmt_expiry("2026-06-19") == "2026-06-19"     # já é data -> cru
+    assert radar._fmt_expiry("") == "" and radar._fmt_expiry(None) == ""
+
+
+def test_scan_scanner_expiry_serial_com_fracao_end_to_end():
+    """Cadeia real: EXPIRY serial com fração não derruba o scan_scanner."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00",
+                   EXPIRY="46192.583333", DTE_CALENDAR="30"),
+        _scan_full(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72,00", CLOSE="1,00",
+                   EXPIRY="46192.583333", DTE_CALENDAR="30"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    opps = radar.scan_scanner(scanner, cfg=cfg)
+    assert opps and opps[0]["expiry_fmt"] == "19/06/2026"
