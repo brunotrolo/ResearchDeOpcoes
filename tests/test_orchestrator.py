@@ -36,6 +36,7 @@ def harness(monkeypatch):
                         lambda tab, header, row: cap["heartbeat"].append(row))
     monkeypatch.setattr(app_main.sheets_client, "ensure_tab", lambda *a, **k: None)
     monkeypatch.setattr(app_main.sheets_client, "ensure_config", lambda *a, **k: None)
+    monkeypatch.setattr(app_main.sheets_client, "set_config_values", lambda *a, **k: None)
     monkeypatch.setattr(app_main.sheets_client, "replace_tab",
                         lambda tab, header, rows: cap["painel"].append((tab, len(rows))))
     monkeypatch.setattr(app_main.state, "run_lock", lambda *a, **k: contextlib.nullcontext())
@@ -183,3 +184,11 @@ def test_config_ajusta_filtro_do_radar(monkeypatch, harness):
     rc = app_main.run()
     assert rc == 0
     assert harness["radar_email"] == []   # a opção de DTE 30 saiu pelo ajuste da CONFIG
+
+
+def test_config_valor_absurdo_usa_padrao_e_corrige():
+    # "1.02" que o Sheets converteu em data (46054) deve ser IGNORADO e corrigido.
+    cfg = {"RADAR_RATIO_MIN": "46054"}
+    rc = app_main._radar_cfg(cfg)
+    assert rc.spot_strike_ratio_min == app_main.config.RADAR.spot_strike_ratio_min  # usa padrão 1.02
+    assert app_main._config_repairs(cfg).get("RADAR_RATIO_MIN") == "1.02"            # marca p/ corrigir

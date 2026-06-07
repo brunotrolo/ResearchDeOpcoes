@@ -54,51 +54,67 @@ def _pct(v) -> float:
     return float(str(v).replace(",", ".")) / 100.0
 
 
-# CHAVE da aba CONFIG -> (campo da dataclass, conversor). Permite controlar a
-# estratégia inteira pela planilha (sem mexer no código).
+# CHAVE da aba CONFIG -> (campo da dataclass, conversor, min, max). O min/max
+# protege contra valores absurdos (ex.: "1.02" que o Sheets converteu em data).
+_DEFAULTS = {c[0]: c[1] for c in config.DEFAULT_CONFIG}
 _ESCUDO_MAP = {
-    "ESCUDO_RECOMPRA_OTM": ("buyback_mult_otm", _num),
-    "ESCUDO_RECOMPRA_OTM_CRIT": ("buyback_mult_otm_crit", _num),
-    "ESCUDO_RECOMPRA_ATM": ("buyback_mult_atm", _num),
-    "ESCUDO_DELTA_ALERTA": ("delta_warn", _num),
-    "ESCUDO_DELTA_URGENTE": ("delta_urgent", _num),
-    "ESCUDO_DTE_CRITICO": ("dte_critical", _int),
-    "ESCUDO_PERDA_MAX_PCT": ("loss_vs_maxloss_pct", _pct),
-    "ESCUDO_GAMMA_MAX": ("gamma_max", _num),
-    "ESCUDO_HHI_MAX": ("hhi_max", _num),
-    "ESCUDO_IBOV_EXPOSICAO_MAX": ("ibov_exposure_max", _pct),
-    "ESCUDO_IBOV_CORREL_MIN": ("ibov_correl_threshold", _num),
+    "ESCUDO_RECOMPRA_OTM": ("buyback_mult_otm", _num, 1.0, 20.0),
+    "ESCUDO_RECOMPRA_OTM_CRIT": ("buyback_mult_otm_crit", _num, 1.0, 30.0),
+    "ESCUDO_RECOMPRA_ATM": ("buyback_mult_atm", _num, 1.0, 20.0),
+    "ESCUDO_DELTA_ALERTA": ("delta_warn", _num, 0.0, 1.0),
+    "ESCUDO_DELTA_URGENTE": ("delta_urgent", _num, 0.0, 1.0),
+    "ESCUDO_DTE_CRITICO": ("dte_critical", _int, 0, 365),
+    "ESCUDO_PERDA_MAX_PCT": ("loss_vs_maxloss_pct", _pct, 0.0, 5.0),
+    "ESCUDO_GAMMA_MAX": ("gamma_max", _num, 0.0, 5.0),
+    "ESCUDO_HHI_MAX": ("hhi_max", _num, 0.0, 1.0),
+    "ESCUDO_IBOV_EXPOSICAO_MAX": ("ibov_exposure_max", _pct, 0.0, 1.0),
+    "ESCUDO_IBOV_CORREL_MIN": ("ibov_correl_threshold", _num, 0.0, 1.0),
 }
 _RADAR_MAP = {
-    "RADAR_IV_RANK_MIN": ("iv_rank_min", _num),
-    "RADAR_RATIO_MIN": ("spot_strike_ratio_min", _num),
-    "RADAR_DTE_MIN": ("dte_min", _int),
-    "RADAR_DTE_MAX": ("dte_max", _int),
-    "RADAR_TOP_N": ("top_n", _int),
-    "RADAR_EXIGIR_TENDENCIA_ALTA": ("require_trend_up", _is_true),
+    "RADAR_IV_RANK_MIN": ("iv_rank_min", _num, 0.0, 100.0),
+    "RADAR_RATIO_MIN": ("spot_strike_ratio_min", _num, 1.0, 3.0),
+    "RADAR_DTE_MIN": ("dte_min", _int, 0, 730),
+    "RADAR_DTE_MAX": ("dte_max", _int, 0, 730),
+    "RADAR_TOP_N": ("top_n", _int, 1, 50),
+    "RADAR_EXIGIR_TENDENCIA_ALTA": ("require_trend_up", _is_true, None, None),
 }
 
 
-def _overrides(cfg_sheet: dict, mapping: dict) -> dict:
-    out = {}
-    for chave, (field, caster) in mapping.items():
+def _apply_config(cfg_sheet: dict, mapping: dict):
+    """Devolve (overrides validos, {chave: valor_padrao} a corrigir na planilha)."""
+    overrides, repair = {}, {}
+    for chave, (field, caster, lo, hi) in mapping.items():
         v = cfg_sheet.get(chave)
-        if v not in (None, ""):
-            try:
-                out[field] = caster(v)
-            except (TypeError, ValueError):
-                pass
-    return out
+        if v in (None, ""):
+            continue
+        try:
+            val = caster(v)
+        except (TypeError, ValueError):
+            repair[chave] = _DEFAULTS.get(chave)
+            continue
+        if lo is not None and not (lo <= val <= hi):
+            repair[chave] = _DEFAULTS.get(chave)   # valor absurdo -> usa padrao
+            continue
+        overrides[field] = val
+    return overrides, repair
 
 
 def _escudo_cfg(cfg_sheet: dict) -> config.EscudoCfg:
-    ov = _overrides(cfg_sheet, _ESCUDO_MAP)
+    ov, _ = _apply_config(cfg_sheet, _ESCUDO_MAP)
     return dataclasses.replace(config.ESCUDO, **ov) if ov else config.ESCUDO
 
 
 def _radar_cfg(cfg_sheet: dict) -> config.RadarCfg:
-    ov = _overrides(cfg_sheet, _RADAR_MAP)
+    ov, _ = _apply_config(cfg_sheet, _RADAR_MAP)
     return dataclasses.replace(config.RADAR, **ov) if ov else config.RADAR
+
+
+def _config_repairs(cfg_sheet: dict) -> dict:
+    r = {}
+    for mp in (_ESCUDO_MAP, _RADAR_MAP):
+        _, rep = _apply_config(cfg_sheet, mp)
+        r.update({k: v for k, v in rep.items() if v is not None})
+    return r
 
 
 def _mc_setup(cfg_sheet: dict):
@@ -352,6 +368,15 @@ def run() -> int:
                 log.info("CONFIG", "Configuração lida da planilha",
                          {k: cfg_sheet.get(k) for k in
                           ("ENVIAR_EMAIL", "ENVIAR_EMAIL_ESCUDO", "ENVIAR_EMAIL_RADAR", "ESCUDO_NIVEL_MINIMO_EMAIL")})
+                repairs = _config_repairs(cfg_sheet)
+                if repairs:
+                    cfg_sheet.update(repairs)   # usa os valores corrigidos já neste ciclo
+                    log.warn("CONFIG", "Valores inválidos detectados; usando padrão (ex.: data por engano)", repairs)
+                    if not config.RUNTIME.dry_run:
+                        try:
+                            sheets_client.set_config_values(config.TAB_CONFIG, repairs)
+                        except Exception as exc:
+                            log.error("CONFIG", "Falha ao corrigir CONFIG na planilha", {"erro": str(exc)})
                 # --- Módulos ---
                 for name, fn in (("ESCUDO", _run_escudo), ("RADAR", _run_radar)):
                     try:

@@ -115,22 +115,52 @@ def ensure_tab(tab_title: str, header: Sequence[str]) -> None:
         ws.append_row(list(header), value_input_option="USER_ENTERED")
 
 
+def _text_col_b(ws) -> None:
+    """Formata a coluna VALOR (B) como TEXTO — impede o Sheets de converter
+    valores como '1.02' em data/numero (causa de bug no locale pt-BR)."""
+    try:
+        ws.format("B:B", {"numberFormat": {"type": "TEXT"}})
+    except Exception:
+        pass
+
+
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
 def ensure_config(tab_title: str, header: Sequence[str], default_rows: Sequence[Sequence]) -> None:
     """Garante a aba CONFIG: cria com os padrões se faltar; se já existir, ANEXA
-    as chaves novas que ainda não estiverem lá (sem mexer no que o usuário editou)."""
+    as chaves novas que ainda não estiverem lá (sem mexer no que o usuário editou).
+    Escreve em RAW e formata a coluna VALOR como texto (à prova de conversão)."""
     ss = _spreadsheet()
     try:
         ws = ss.worksheet(tab_title)
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(title=tab_title, rows=max(len(default_rows) + 5, 30), cols=max(len(header), 3))
+        _text_col_b(ws)
         ws.update(values=[list(header)] + [list(map(_cell, r)) for r in default_rows],
-                  range_name="A1", value_input_option="USER_ENTERED")
+                  range_name="A1", value_input_option="RAW")
         return
+    _text_col_b(ws)
     existentes = {str(r[0]).strip().upper() for r in ws.get_all_values()[1:] if r and str(r[0]).strip()}
     faltando = [r for r in default_rows if str(r[0]).strip().upper() not in existentes]
     if faltando:
-        ws.append_rows([list(map(_cell, r)) for r in faltando], value_input_option="USER_ENTERED")
+        ws.append_rows([list(map(_cell, r)) for r in faltando], value_input_option="RAW")
+
+
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def set_config_values(tab_title: str, updates: dict) -> None:
+    """Sobrescreve a coluna VALOR de chaves específicas (RAW). Usado para corrigir
+    valores que a planilha corrompeu (ex.: '1.02' virou data)."""
+    ss = _spreadsheet()
+    try:
+        ws = ss.worksheet(tab_title)
+    except gspread.WorksheetNotFound:
+        return
+    _text_col_b(ws)
+    linha = {str(r[0]).strip().upper(): i + 1
+             for i, r in enumerate(ws.get_all_values()) if r and str(r[0]).strip()}
+    data = [{"range": f"B{linha[k.upper()]}", "values": [[_cell(v)]]}
+            for k, v in updates.items() if k.upper() in linha]
+    if data:
+        ws.batch_update(data, value_input_option="RAW")
 
 
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
