@@ -115,6 +115,7 @@ TABS: dict[str, TabSpec] = {
     "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ",")),
     "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
     "config":       TabSpec(_env("TAB_CONFIG", "CONFIG"),                       _env_int("TAB_CONFIG_HEADER_ROW", 1),       _env("TAB_CONFIG_DECIMAL", ",")),
+    "scanner":      TabSpec(_env("TAB_SCANNER", "SCANNER_OPCOES"),              _env_int("TAB_SCANNER_HEADER_ROW", 1),      _env("TAB_SCANNER_DECIMAL", ",")),
 }
 
 # Abas de escrita (logs + histórico). Criadas automaticamente se não existirem.
@@ -146,6 +147,8 @@ DEFAULT_CONFIG = [
     ["RADAR_DTE_MAX", "45", "DTE maximo (dias)"],
     ["RADAR_TOP_N", "5", "Quantas oportunidades no e-mail"],
     ["RADAR_EXIGIR_TENDENCIA_ALTA", "FALSE", "So recomenda se a acao estiver em alta M9>M21 (TRUE/FALSE)"],
+    ["RADAR_USAR_TRAVA", "TRUE", "Montar Trava de Alta com PUT (risco limitado) em vez de PUT a seco (TRUE/FALSE)"],
+    ["RADAR_TRAVA_LARGURA_PCT", "5", "Largura da trava: PUT comprada ~N% abaixo do strike vendido (%)"],
     # --- Escudo (gatilhos de defesa) ---
     ["ESCUDO_RECOMPRA_OTM", "2.0", "Alerta quando custo de recompra >= Nx o premio (OTM)"],
     ["ESCUDO_RECOMPRA_OTM_CRIT", "3.0", "Critico quando recompra >= Nx (OTM)"],
@@ -224,12 +227,26 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "iv_rank": "IV_RANK",
         "iv_current": "IV_CURRENT",
         "volume_fin": "VOLUME_FIN",
+        "ve_over_strike": "VE_OVER_STRIKE",   # valor extrínseco / strike (% ) -> estima prêmio
         "bid": "BID",                  # opcional (espelhar SCANNER_OPCOES p/ filtro de spread)
         "ask": "ASK",                  # opcional
         "profit_rate": "PROFIT_RATE_IF_EXERCISED",
         "m9m21_trend": "M9M21_TREND",
         "sector": "SECTOR",
         "company": "COMPANY_NAME",
+    },
+    "scanner": {
+        # Cadeia de opções com liquidez/gregas — fonte do prêmio REAL (CLOSE) e
+        # da perna comprada da Trava. Cabeçalhos seguem a convenção das demais
+        # abas; se algum diferir, o leitor cai para a estimativa (VE/strike).
+        "option_ticker": "OPTION_TICKER",
+        "ticker": "TICKER",
+        "category": "CATEGORY",        # PUT / CALL
+        "strike": "STRIKE",
+        "close": "CLOSE",              # último preço/prêmio da opção
+        "bid": "BID",
+        "ask": "ASK",
+        "dte": "DTE_CALENDAR",
     },
     "volumes": {
         "ticker": "TICKER",
@@ -327,6 +344,12 @@ class RadarCfg:
     use_spread_filter: bool = _env_bool("RADAR_USE_SPREAD_FILTER", False)
     bid_ask_spread_max: float = _env_float("RADAR_BID_ASK_SPREAD_MAX", 0.20)
     top_n: int = _env_int("RADAR_TOP_N", 5)
+    # Trava de Alta com PUT (Bull Put Spread): em vez de PUT a seco (risco
+    # ilimitado abaixo do strike), monta a trava comprando uma PUT mais OTM
+    # para LIMITAR o risco. A perna comprada fica ~largura% abaixo do strike
+    # vendido (busca o strike disponível mais próximo na cadeia).
+    usar_trava: bool = _env_bool("RADAR_USAR_TRAVA", True)
+    trava_largura_pct: float = _env_float("RADAR_TRAVA_LARGURA_PCT", 0.05)
 
 
 # Instâncias prontas para importar

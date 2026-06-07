@@ -77,6 +77,8 @@ _RADAR_MAP = {
     "RADAR_DTE_MAX": ("dte_max", _int, 0, 730),
     "RADAR_TOP_N": ("top_n", _int, 1, 50),
     "RADAR_EXIGIR_TENDENCIA_ALTA": ("require_trend_up", _is_true, None, None),
+    "RADAR_USAR_TRAVA": ("usar_trava", _is_true, None, None),
+    "RADAR_TRAVA_LARGURA_PCT": ("trava_largura_pct", _pct, 0.005, 0.5),
 }
 
 
@@ -185,8 +187,10 @@ def _run_url() -> str:
 
 def _audit_read(log: Logbook, nome: str, df) -> None:
     """Registra a leitura de uma aba (auditoria)."""
-    ctx = {"aba": nome, "linhas": len(df), "colunas": list(df.columns)} if config.AUDIT_VERBOSE else None
-    log.info("SHEET_READ", f"{nome}: {len(df)} linha(s)", ctx)
+    n = 0 if df is None else len(df)
+    cols = [] if df is None else list(df.columns)
+    ctx = {"aba": nome, "linhas": n, "colunas": cols} if config.AUDIT_VERBOSE else None
+    log.info("SHEET_READ", f"{nome}: {n} linha(s)", ctx)
 
 
 def _write_heartbeat(log: Logbook, tz, summary: dict, status: str, duration_s: float, notes: str = "") -> None:
@@ -283,13 +287,19 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     _audit_read(log, "SELECAO_MAIORES_VOLUMES", df_volumes)
     df_dados = sheets_client.read_tab("dados_ativos")
     _audit_read(log, "DADOS_ATIVOS", df_dados)
+    try:
+        df_scanner = sheets_client.read_tab("scanner")
+    except Exception as exc:  # aba ausente -> cai para a estimativa (VE/strike)
+        df_scanner = None
+        log.info("RADAR", "SCANNER_OPCOES indisponível (usando estimativa de prêmio)", {"erro": str(exc)})
+    _audit_read(log, "SCANNER_OPCOES", df_scanner)
 
     radar_cfg = _radar_cfg(cfg_sheet)
     sim, poe_max = _mc_setup(cfg_sheet)
     vmap = radar.build_vol_map(df_dados) if sim is not None else None
     funil: dict = {}
     opps = radar.scan(df_lucros, df_volumes, df_dados, cfg=radar_cfg, audit=funil,
-                      mc=sim, vol_map=vmap, poe_max=poe_max)
+                      mc=sim, vol_map=vmap, poe_max=poe_max, df_scanner=df_scanner)
     log.info("RADAR", "Funil de filtros", funil)
     summary["radar_opps"] = len(opps)
     log.info("RADAR", f"{len(opps)} oportunidade(s) após filtros",

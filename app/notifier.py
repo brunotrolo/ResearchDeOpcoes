@@ -183,10 +183,46 @@ def send_escudo_alert(alerts: list[dict]) -> bool:
 
 
 # --- RADAR -----------------------------------------------------------------
+def _rr(v) -> str:
+    return "—" if v is None else f"{v * 100:.0f}".replace(".", ",") + "%"
+
+
+def _trava_block(tr: dict | None) -> str:
+    """Bloco da Trava de Alta com PUT (Bull Put Spread): pernas + crédito/risco."""
+    if not tr:
+        return ""
+    aprox = "≈ " if tr.get("estimado") else ""
+    cont = lambda v: _brl(v * 100) if v is not None else "—"   # 1 contrato = 100
+    legs = (
+        f"<div style='margin:3px 0'>🔴 <b>VENDE</b> PUT strike {_brl(tr.get('sell_strike'))} "
+        f"· prêmio {aprox}{_brl(tr.get('sell_premio'))} "
+        f"<span style='color:#888;font-size:12px'>{tr.get('sell_opt','')}</span></div>"
+        f"<div style='margin:3px 0'>🟢 <b>COMPRA</b> PUT strike {_brl(tr.get('buy_strike'))} "
+        f"· prêmio {aprox}{_brl(tr.get('buy_premio'))} "
+        f"<span style='color:#888;font-size:12px'>{tr.get('buy_opt','')}</span></div>"
+    )
+    resumo = _grid([
+        ("Crédito líq.", aprox + _brl(tr.get("credito"))),
+        ("Risco máx.", _brl(tr.get("risco_max"))),
+        ("Retorno/Risco", _rr(tr.get("retorno_risco"))),
+    ])
+    nota = (f"<div style='color:#666;font-size:12px;margin-top:4px'>Por contrato (×100): "
+            f"crédito {aprox}{cont(tr.get('credito'))} · risco máx. {cont(tr.get('risco_max'))}</div>")
+    return (
+        "<tr><td style='padding:10px 14px;background:#ecfdf5;border-top:1px solid #eee'>"
+        "<b>🛡️ Trava de Alta com PUT</b> <span style='color:#555;font-size:12px'>(risco limitado)</span>"
+        f"{legs}{resumo}{nota}</td></tr>")
+
+
 def _radar_card(o: dict) -> str:
     iv = o.get("iv_rank")
+    tr = o.get("trava")
+    aprox = "≈ " if o.get("premio_estimado") else ""
+    premio_txt = (aprox + _brl(o.get("premio"))) if o.get("premio") is not None else "—"
+    estrategia = "Trava de Alta c/ PUT" if tr else "V PUT"
     metrics = [
         ("Spot", _brl(o.get("spot"))), ("Strike", _brl(o.get("strike"))),
+        ("Prêmio (CLOSE)", premio_txt),
         ("Dist. (margem)", _pct(o.get("dist_pct"), 1)),
         ("IV Rank", _num(iv, 0)), ("Taxa retorno", _pct(o.get("profit_rate"))),
         ("PoE exerc. (MC)", _pct(o.get("poe_mc_gate") * 100, 0) if o.get("poe_mc_gate") is not None else "—"),
@@ -199,11 +235,12 @@ def _radar_card(o: dict) -> str:
         "border:1px solid #e5e7eb;border-left:5px solid #16a34a'>"
         "<tr style='background:#f0fdf4'><td style='padding:10px 14px'>"
         f"<span style='font-size:18px;font-weight:700'>{o.get('ticker','')}</span>"
-        f"<span style='color:#555'> · V PUT</span>"
+        f"<span style='color:#555'> · {estrategia}</span>"
         f"<span style='float:right;font-weight:700;color:#16a34a'>IV Rank {_num(iv,0)}</span>"
         f"<div style='color:#666;font-size:13px;margin-top:2px'>{o.get('option_ticker','')} · "
         f"{o.get('dte','')}d ({o.get('expiry_fmt','')})</div></td></tr>"
         f"<tr><td style='padding:4px 4px'>{_grid(metrics)}</td></tr>"
+        f"{_trava_block(tr)}"
         f"<tr><td style='padding:8px 14px;background:#f0fdf4;border-top:1px solid #eee'>"
         f"💡 <b>Por quê:</b> {o.get('motivo','—')}</td></tr></table>")
 
@@ -211,18 +248,31 @@ def _radar_card(o: dict) -> str:
 def send_radar_opportunities(opps: list[dict]) -> bool:
     if not opps:
         return False
-    subject = f"📡 RADAR — {len(opps)} oportunidade(s) de venda de PUT"
+    tem_trava = any(o.get("trava") for o in opps)
+    titulo = "Travas de Alta com PUT" if tem_trava else "Venda de PUT"
+    subject = f"📡 RADAR — {len(opps)} oportunidade(s) de {titulo}"
     cards = "".join(_radar_card(o) for o in opps)
-    html = _wrap(cards, "📡 Oportunidades de Venda de PUT",
-                 f"Top {len(opps)} (IV alto, OTM com margem, DTE no alvo, líquidas).",
+    html = _wrap(cards, f"📡 Oportunidades — {titulo}",
+                 f"Top {len(opps)} (IV alto, OTM com margem, DTE no alvo, líquidas)."
+                 + (" Risco limitado pela trava." if tem_trava else ""),
                  "Gerado pelo motor ResearchDeOpcoes. Não é recomendação de investimento.")
     linhas = []
     for i, o in enumerate(opps, 1):
-        linhas.append(
+        tr = o.get("trava")
+        aprox = "≈ " if o.get("premio_estimado") else ""
+        bloco = (
             f"{i}. {o.get('ticker','')} {o.get('option_ticker','')}\n"
             f"   Strike {_brl(o.get('strike'))} | Spot {_brl(o.get('spot'))} ({_pct(o.get('dist_pct'),1)}) | "
             f"IV Rank {_num(o.get('iv_rank'),0)} | DTE {o.get('dte','')} | Taxa {_pct(o.get('profit_rate'))}\n"
-            f"   💡 {o.get('motivo','')}")
-    text = "📡 OPORTUNIDADES DE VENDA DE PUT\n\n" + "\n\n".join(linhas) + \
+            f"   Prêmio (CLOSE): {aprox}{_brl(o.get('premio'))}")
+        if tr:
+            bloco += (
+                f"\n   🛡️ TRAVA DE ALTA: VENDE PUT {_brl(tr.get('sell_strike'))} (prêmio {aprox}{_brl(tr.get('sell_premio'))})"
+                f" | COMPRA PUT {_brl(tr.get('buy_strike'))} (prêmio {aprox}{_brl(tr.get('buy_premio'))})"
+                f"\n      Crédito {aprox}{_brl(tr.get('credito'))}/ação | Risco máx. {_brl(tr.get('risco_max'))}/ação"
+                f" | Retorno/Risco {_rr(tr.get('retorno_risco'))}")
+        bloco += f"\n   💡 {o.get('motivo','')}"
+        linhas.append(bloco)
+    text = f"📡 OPORTUNIDADES — {titulo.upper()}\n\n" + "\n\n".join(linhas) + \
         "\n\nNão é recomendação de investimento.\n— motor ResearchDeOpcoes"
     return _send(subject, html, text)
