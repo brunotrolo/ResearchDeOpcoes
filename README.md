@@ -5,12 +5,16 @@ Motor quantitativo de análise de opções da **B3**, com dupla função:
 - 🛡️ **Escudo** — defesa das posições ativas: alertas por perna (moneyness, Δ,
   POE, recompra, DTE, perda) **e por carteira** (concentração setorial via HHI,
   exposição direcional ao IBOV).
-- 🎯 **Radar** — prospecção de prêmios: venda de PUT com IV Rank alto, OTM com
-  margem, na janela de DTE certa e líquida.
+- 🎯 **Radar** — prospecção de prêmios: lê a cadeia `SCANNER_OPCOES` (prêmio
+  **CLOSE real**), filtra venda de PUT com IV Rank alto, OTM com margem, DTE no
+  alvo e líquida, e monta a **Trava de Alta com PUT** (risco limitado).
 
 O motor lê o painel no **Google Sheets**, consulta o **relógio de ponto** na
 OpLab e dispara **alertas por e-mail**. Roda de hora em hora no pregão.
-Arquitetura detalhada em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+
+📚 Documentação: [`docs/GUIA_FUNCIONAL.md`](docs/GUIA_FUNCIONAL.md) (como usar, sem
+código) · [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) (técnico) ·
+[`docs/CONFIG.md`](docs/CONFIG.md) (parâmetros da aba CONFIG).
 
 Há **dois jeitos de rodar**: na **nuvem do GitHub** (recomendado, sem depender
 de PC ligado) ou **local no Windows**.
@@ -150,7 +154,7 @@ M9/M21, IV Rank, score OpLab, margem). Operações tranquilas não entram no e-m
 controla **toda a estratégia pelo celular, sem código** — e-mails (liga/desliga),
 filtros do Radar (IV Rank, distância, DTE, Top-N), gatilhos do Escudo (recompra,
 Delta, DTE, perda, gamma, HHI, IBOV) e o Monte Carlo (PoE máxima, cenários).
-Referência completa das 24 chaves em [`docs/CONFIG.md`](docs/CONFIG.md).
+Referência completa das chaves em [`docs/CONFIG.md`](docs/CONFIG.md).
 
 **Painéis ao vivo (`PAINEL_ESCUDO` / `PAINEL_RADAR`):** sobrescritos a cada
 execução com o estado atual + a **análise do motor** por operação/oportunidade.
@@ -167,15 +171,15 @@ python -m pytest -q
 ## Uso no dia a dia
 ```powershell
 .venv\Scripts\python.exe main.py            # rodar agora
-.venv\Scripts\python.exe -m pytest -q       # rodar os testes (24)
+.venv\Scripts\python.exe -m pytest -q       # rodar os testes (59)
 ```
 O motor **só processa com o mercado aberto** (`/market/status == "A"`); fora
 disso, encerra na hora. Tudo é registrado na aba **LOGS** para debug.
 
 ## Configuração
-- **Abas lidas:** `Painel_Ativas`, `SELECAO_OPCOES_MAIORES_LUCROS`,
+- **Abas lidas:** `Painel_Ativas`, `SCANNER_OPCOES`, `SELECAO_OPCOES_MAIORES_LUCROS`,
   `SELECAO_MAIORES_VOLUMES`, `RANKING_TENDENCIA_M9M21`, `RANKING_CORREL_IBOV`,
-  `DADOS_ATIVOS`.
+  `DADOS_ATIVOS`, `CONFIG`.
 - **Abas escritas:** `LOGS`, `ESCUDO_HISTORICO`, `RADAR_HISTORICO` (criadas se faltarem).
 - **Mapa de colunas e thresholds:** [`app/config.py`](app/config.py) (tudo no `.env`).
 

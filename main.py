@@ -84,7 +84,9 @@ _RADAR_MAP = {
     "RADAR_DTE_MIN": ("dte_min", _int, 0, 730),
     "RADAR_DTE_MAX": ("dte_max", _int, 0, 730),
     "RADAR_TOP_N": ("top_n", _int, 1, 50),
+    "RADAR_MAX_POR_ATIVO": ("max_por_ativo", _int, 1, 50),
     "RADAR_EXIGIR_TENDENCIA_ALTA": ("require_trend_up", _is_true, None, None),
+    "RADAR_EVITAR_TENDENCIA_BAIXA": ("evitar_tendencia_baixa", _is_true, None, None),
     "RADAR_USAR_TRAVA": ("usar_trava", _is_true, None, None),
     "RADAR_TRAVA_LARGURA_PCT": ("trava_largura_pct", _pct, 0.005, 0.5),
 }
@@ -127,14 +129,21 @@ def _config_repairs(cfg_sheet: dict) -> dict:
     return r
 
 
-def _mc_setup(cfg_sheet: dict):
-    """Devolve (simulador, poe_max) conforme a CONFIG; (None, None) se desligado."""
-    if not _is_true(cfg_sheet.get("USAR_MONTECARLO", "TRUE")):
-        return None, None
+def _poe_max(cfg_sheet: dict) -> float:
+    """Teto de probabilidade de exercício (POE_MAXIMA). É aplicado SEMPRE — mesmo
+    com o Monte Carlo desligado, usando a POE da planilha — para nunca recomendar
+    PUT acima do risco configurado. Default 25%."""
     try:
-        poe_max = _pct(cfg_sheet.get("POE_MAXIMA", "25"))
+        return _pct(cfg_sheet.get("POE_MAXIMA", "25"))
     except (TypeError, ValueError):
-        poe_max = config.RADAR.poe_max
+        return config.RADAR.poe_max
+
+
+def _mc_setup(cfg_sheet: dict):
+    """Devolve o simulador Monte Carlo conforme a CONFIG, ou None se desligado. O
+    teto de PoE é independente (ver _poe_max), para valer mesmo sem Monte Carlo."""
+    if not _is_true(cfg_sheet.get("USAR_MONTECARLO", "TRUE")):
+        return None
     try:
         n = _int(cfg_sheet.get("MC_CENARIOS", config.MC_N))
     except (TypeError, ValueError):
@@ -143,7 +152,7 @@ def _mc_setup(cfg_sheet: dict):
         drift = _num(cfg_sheet.get("MC_DRIFT", config.MC_DRIFT))
     except (TypeError, ValueError):
         drift = config.MC_DRIFT
-    return montecarlo.MonteCarloSimulator(n, config.MC_SEED, drift), poe_max
+    return montecarlo.MonteCarloSimulator(n, config.MC_SEED, drift)
 
 
 def _mc_enrich(items: list[dict], vol_map: dict, sim) -> None:
@@ -292,11 +301,18 @@ def _log_radar_funil(log: Logbook, f: dict) -> None:
                               f"ou alimente o scanner com os vencimentos que você opera.")
         else:
             log.info("RADAR", f"DTEs disponíveis no scanner: {dtes}")
-    log.info("RADAR", f"Funil 7 — tendência/whitelist: {f.get('apos_tendencia', 0)} sobram")
+    if fl.get("evitar_baixa"):
+        log.info("RADAR", f"Funil 7 — descartando tendência de BAIXA (M9<M21): {f.get('apos_tendencia', 0)} sobram")
+    else:
+        log.info("RADAR", f"Funil 7 — tendência/whitelist: {f.get('apos_tendencia', 0)} sobram")
     if "apos_montecarlo" in f:
+        teto = _pctg(fl.get("poe_max"))
         fonte_poe = "Monte Carlo" if not scanner else "Monte Carlo / POE da planilha"
-        log.info("RADAR", f"Funil 8 — {fonte_poe} (PoE ≤ máx): {f.get('apos_montecarlo', 0)} sobram "
+        log.info("RADAR", f"Funil 8 — {fonte_poe} (PoE ≤ {teto}): {f.get('apos_montecarlo', 0)} sobram "
                           f"(menor PoE visto: {_pctg(f.get('poe_min'))})")
+    if f.get("diversificacao_cortou"):
+        log.info("RADAR", f"Funil 9 — diversificação (máx {fl.get('max_por_ativo')} por ativo): "
+                          f"cortou {f.get('diversificacao_cortou')} repetida(s) do mesmo ativo-mãe")
     log.info("RADAR", f"Funil — FINAL: {f.get('final', 0)} oportunidade(s) selecionada(s) (Top {f.get('final', 0)})")
     log.info("RADAR", f"Prêmios: {f.get('premios_reais', 0)} REAIS (scanner) · "
                       f"{f.get('premios_estimados', 0)} estimados (≈) · travas montadas: {f.get('travas_montadas', 0)}",
@@ -306,9 +322,10 @@ def _log_radar_funil(log: Logbook, f: dict) -> None:
 
 def _log_radar_opp(log: Logbook, o: dict) -> None:
     src = "estimado ≈" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
+    poe_src = o.get("poe_fonte") or "Monte Carlo"
     cab = (f"{o.get('ticker')} {o.get('option_ticker')} — strike R$ {_g(o.get('strike'))}, "
            f"prêmio R$ {_g(o.get('premio'))} ({src}), IVR {_g(o.get('iv_rank'))}, "
-           f"PoE {_pctg(o.get('poe_mc_gate'))}, DTE {_g(o.get('dte'))}, vol R$ {_g(o.get('volume_fin'))}")
+           f"PoE {_pctg(o.get('poe_mc_gate'))} ({poe_src}), DTE {_g(o.get('dte'))}, vol R$ {_g(o.get('volume_fin'))}")
     tr = o.get("trava")
     if tr:
         det = (f"TRAVA DE ALTA: vende PUT {_g(tr['sell_strike'])} @ R$ {_g(tr['sell_premio'])} + "
@@ -317,6 +334,8 @@ def _log_radar_opp(log: Logbook, o: dict) -> None:
     else:
         det = f"SEM trava: {o.get('trava_motivo', '—')} (recomenda PUT a seco)"
     ctx = {"recomendacao": det, "porque": o.get("motivo")}
+    if o.get("alerta_tendencia"):
+        ctx["alerta"] = o.get("alerta_tendencia")
     if o.get("premio_estimado"):
         ctx["por_que_estimado"] = o.get("premio_diag")
     log.info("RADAR", f"Oportunidade {cab}", ctx)
@@ -339,7 +358,7 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
     alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg)
 
-    sim, _ = _mc_setup(cfg_sheet)
+    sim = _mc_setup(cfg_sheet)
     if sim is not None:
         try:
             _mc_enrich(alerts, radar.build_vol_map(sheets_client.read_tab("dados_ativos")), sim)
@@ -408,7 +427,8 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     _audit_read(log, "SCANNER_OPCOES", df_scanner)
 
     radar_cfg = _radar_cfg(cfg_sheet)
-    sim, poe_max = _mc_setup(cfg_sheet)
+    sim = _mc_setup(cfg_sheet)
+    poe_max = _poe_max(cfg_sheet)   # teto de PoE sempre vale (com ou sem Monte Carlo)
     vmap = radar.build_vol_map(df_dados) if sim is not None else None
     funil: dict = {}
     tem_scanner = df_scanner is not None and not df_scanner.empty

@@ -8,8 +8,8 @@
 ```
                  ┌──────────────────────────────────────────────┐
                  │            Google Sheets (Painel)            │
-                 │  Painel_Ativas · SELECAO_* · RANKING_* ·     │
-                 │  DADOS_ATIVOS · LOGS · *_HISTORICO           │
+                 │  Painel_Ativas · SCANNER_OPCOES · SELECAO_* ·│
+                 │  RANKING_* · DADOS_ATIVOS · LOGS · *_HISTORICO│
                  └───────────────▲───────────────▲──────────────┘
                                  │ gspread (lê)   │ gspread (grava)
                                  │                │
@@ -31,7 +31,8 @@
    Se `market_status != "A"`, **encerra** (poupa processamento/API). Se a OpLab
    estiver inacessível, **aborta por segurança** (não roda às cegas).
 3. **Escudo** (`escudo.analyze`) — lê `Painel_Ativas`, avalia pernas vendidas.
-4. **Radar** (`radar.scan`) — lê seleções, filtra oportunidades de PUT.
+4. **Radar** (`radar.scan_scanner` / `radar.scan`) — lê o `SCANNER_OPCOES` (ou as
+   seleções), filtra oportunidades de PUT e monta a Trava de Alta.
 5. **Histórico + LOGS** — grava resultados nas abas e dá *flush* dos logs.
 
 Erros de um módulo são capturados e logados (aba LOGS) sem derrubar o outro.
@@ -46,11 +47,12 @@ Erros de um módulo são capturados e logados (aba LOGS) sem derrubar o outro.
 | `frames.py` | Acesso a colunas por nome **lógico**. |
 | `logbook.py` | Logs em 3 destinos: aba LOGS, arquivo, stdout. |
 | `market_gate.py` | Consulta OpLab `/market/status`. |
+| `montecarlo.py` | Simulação GBM da probabilidade de exercício (PoE) — vol IV + realizada. |
 | `notifier.py` | E-mail (SMTP/SSL): alerta urgente (Escudo) e oportunidade (Radar). |
 | `state.py` | Lock, dedupe de alertas/oportunidades, marca de última execução. |
 | `risk_metrics.py` | Métricas de carteira (HHI, exposição IBOV, sizing, spread). |
 | `escudo.py` | **Módulo 1** — defesa por perna (moneyness) + carteira. |
-| `radar.py` | **Módulo 2** — filtros de prospecção. |
+| `radar.py` | **Módulo 2** — prospecção: `scan_scanner` (scanner) e `scan` (lucros). |
 
 ## Regra do Escudo (perna vendida), por moneyness
 
@@ -77,14 +79,49 @@ Além da análise por perna, o Escudo avalia a carteira como um todo
 - **Exposição ao IBOV** — fração do portfólio em ativos com `|correlação| ≥ 0.50`
   (de `RANKING_CORREL_IBOV`). `> 80%` → ALERTA de risco direcional sistêmico.
 
-## Filtros do Radar
+## Módulo 2 — Radar (prospecção de PUTs)
 
-`CATEGORY == PUT` · `IV_RANK ≥ 50` · `SPOT_STRIKE_RATIO ≥ 1.02` ·
-`DTE ∈ [21, 45]` (sweet spot) · `VOLUME_FIN > piso` (liquidez) ·
-(opcional) spread bid-ask relativo `≤ 0.20` · universo monitorado `DADOS_ATIVOS`
-(com `HAS_OPTIONS = TRUE`) · (opcional) tendência M9M21 = alta.
-Ranqueia por `PROFIT_RATE` e `IV_RANK`, envia Top-N. Se `CAPITAL_DISPONIVEL > 0`,
-sugere o nº de contratos (risco de `RISK_PER_TRADE` por trade). Parâmetros em `.env` (`RADAR_*`).
+### Fonte das oportunidades (`RADAR_FONTE`)
+- **`scanner`** — lê a aba **`SCANNER_OPCOES`** (cadeia completa de opções, ~2000
+  linhas). O prêmio é **sempre o `CLOSE` real** da planilha e a Trava de Alta usa
+  pernas do **mesmo vencimento**. Fonte primária.
+- **`lucros`** — lê `SELECAO_OPCOES_MAIORES_LUCROS`. O prêmio vem do scanner
+  quando a opção casa; senão é **estimado** (`VE/strike`, marcado com `≈`).
+- **`auto`** (padrão) — usa o scanner quando ele tem linhas; senão, a aba de lucros.
+
+### Funil de filtros (estágio a estágio nos LOGS)
+`é PUT` (por `CATEGORY` **ou** `TYPE`) · prêmio `CLOSE` válido (`0 < prêmio <
+strike`) · `IV_RANK ≥ 50` (cruzado de `DADOS_ATIVOS`; ativo fora do universo não
+é barrado) · distância `spot/strike ≥ 1.02` (OTM com margem) · `VOLUME_FIN ≥
+piso` (liquidez) · `DTE ∈ [min, max]` · (opcional) descarta tendência de **baixa**
+M9<M21 · universo monitorado `DADOS_ATIVOS` (`HAS_OPTIONS = TRUE`).
+
+### Porteiro de risco — PoE (probabilidade de exercício)
+O teto `POE_MAXIMA` (padrão 25%) é **sempre** aplicado. A PoE de cada opção vem,
+em ordem: do **Monte Carlo** (`montecarlo.poe_resumo`, GBM com vol IV e realizada,
+gate = pior caso) quando há vol do ativo em `DADOS_ATIVOS`; senão, da **POE da
+planilha** (OpLab, risk-neutral). Cada oportunidade registra a **fonte da PoE**.
+
+### Trava de Alta com PUT (Bull Put Spread)
+Em vez de PUT a seco (risco ilimitado abaixo do strike), o motor monta a trava:
+**vende** a PUT da oportunidade e **compra** uma PUT mais OTM (~`RADAR_TRAVA_LARGURA_PCT`
+abaixo, padrão 5%), escolhendo na cadeia o strike disponível mais próximo do alvo
+e do **mesmo vencimento**. Resultado: crédito, **risco máximo limitado** (largura −
+crédito) e retorno/risco. Sem perna de proteção, o motivo é explicado nos LOGS.
+
+### Ranking, diversificação e sizing
+Ordena por taxa de retorno (`prêmio/strike`) e `IV_RANK`. **Diversificação:**
+no máximo `RADAR_MAX_POR_ATIVO` (padrão 2) oportunidades por ativo-mãe, depois
+corta no `RADAR_TOP_N`. Se `CAPITAL_DISPONIVEL > 0`, sugere o nº de contratos
+(margem-proxy = `strike × 100`, risco de `RISK_PER_TRADE` por trade). Ações em
+tendência de **baixa** (M9<M21) levam um **aviso direcional** no e-mail e nos LOGS.
+
+### `EXPIRY` serial do Sheets
+O `EXPIRY` do scanner vem como **número serial** (e às vezes com fração de hora,
+ex.: `46192.58` = 19/06/2026 ~14h). `_fmt_expiry` auto-detecta o separador e só
+converte dentro de uma faixa plausível (40000–60000), evitando overflow de data.
+
+Parâmetros em `.env` / aba `CONFIG` (`RADAR_*`, `POE_MAXIMA`, `USAR_MONTECARLO`).
 
 ## Locale numérico por aba
 

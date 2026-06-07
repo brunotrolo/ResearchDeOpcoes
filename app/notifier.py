@@ -220,16 +220,22 @@ def _radar_card(o: dict) -> str:
     aprox = "≈ " if o.get("premio_estimado") else ""
     premio_txt = (aprox + _brl(o.get("premio"))) if o.get("premio") is not None else "—"
     estrategia = "Trava de Alta c/ PUT" if tr else "V PUT"
+    poe_src = o.get("poe_fonte") or "Monte Carlo"
+    poe_lbl = "PoE exerc. (MC)" if poe_src.startswith("Monte") else "PoE exerc. (OpLab)"
     metrics = [
         ("Spot", _brl(o.get("spot"))), ("Strike", _brl(o.get("strike"))),
         ("Prêmio (CLOSE)", premio_txt),
         ("Dist. (margem)", _pct(o.get("dist_pct"), 1)),
         ("IV Rank", _num(iv, 0)), ("Taxa retorno", _pct(o.get("profit_rate"))),
-        ("PoE exerc. (MC)", _pct(o.get("poe_mc_gate") * 100, 0) if o.get("poe_mc_gate") is not None else "—"),
+        (poe_lbl, _pct(o.get("poe_mc_gate") * 100, 0) if o.get("poe_mc_gate") is not None else "—"),
         ("Vol. financ.", _brl(o.get("volume_fin"))),
     ]
     if o.get("contratos_sugeridos") is not None:
         metrics.append(("Contratos sug.", _intbr(o.get("contratos_sugeridos"))))
+    # Aviso direcional (ação em baixa) — venda de PUT contra a tendência.
+    alerta = o.get("alerta_tendencia")
+    aviso = (f"<tr><td style='padding:6px 14px;background:#fffbeb;color:#92400e;"
+             f"font-size:13px;border-top:1px solid #fde68a'>⚠️ {alerta}</td></tr>") if alerta else ""
     return (
         "<table width='100%' style='border-collapse:collapse;margin:0 0 14px;background:#fff;"
         "border:1px solid #e5e7eb;border-left:5px solid #16a34a'>"
@@ -240,6 +246,7 @@ def _radar_card(o: dict) -> str:
         f"<div style='color:#666;font-size:13px;margin-top:2px'>{o.get('option_ticker','')} · "
         f"{o.get('dte','')}d ({o.get('expiry_fmt','')})</div></td></tr>"
         f"<tr><td style='padding:4px 4px'>{_grid(metrics)}</td></tr>"
+        f"{aviso}"
         f"{_trava_block(tr)}"
         f"<tr><td style='padding:8px 14px;background:#f0fdf4;border-top:1px solid #eee'>"
         f"💡 <b>Por quê:</b> {o.get('motivo','—')}</td></tr></table>")

@@ -133,7 +133,7 @@ def _motivo_radar(rec: dict) -> str:
         partes.append(f"Score OpLab {sc:.0f}")
     g = rec.get("poe_mc_gate")
     if g is not None:
-        partes.append(f"PoE {g * 100:.0f}% (Monte Carlo)")
+        partes.append(f"PoE {g * 100:.0f}% ({rec.get('poe_fonte', 'Monte Carlo')})")
     return " · ".join(partes) if partes else "—"
 
 
@@ -418,9 +418,13 @@ def scan_scanner(
 
     df = _normalize_scanner(df_scanner)
     _, chain = scanner_index(df_scanner)
+    sig = _underlying_signals(df_dados_ativos)
     iv_rank = _iv_rank_map(df_dados_ativos)
     df["iv_rank"] = pd.to_numeric(
         df["ticker"].map(lambda t: iv_rank.get(str(t).strip().upper())), errors="coerce")
+    # Tendência da ação-mãe (M9>M21): 1 alta, -1 baixa, None = desconhecida.
+    df["m9m21_trend"] = df["ticker"].map(
+        lambda t: (sig.get(str(t).strip().upper()) or {}).get("m9m21_trend"))
 
     premio_ok = df["premio"].map(lambda p: _premio_valido(p, None))
 
@@ -433,6 +437,9 @@ def scan_scanner(
     m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
     m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
     mask = m_dte
+    # Opcional: descarta venda de PUT em ação em tendência de BAIXA (M9<M21).
+    if cfg.evitar_tendencia_baixa:
+        mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
         dtes = sorted({int(d) for d in df.loc[m_prem, "dte"].dropna().tolist()})
@@ -448,7 +455,9 @@ def scan_scanner(
             "apos_tendencia": int(mask.sum()),
             "dtes_disponiveis": dtes,
             "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
-                        "dte_min": cfg.dte_min, "dte_max": cfg.dte_max},
+                        "dte_min": cfg.dte_min, "dte_max": cfg.dte_max,
+                        "evitar_baixa": cfg.evitar_tendencia_baixa,
+                        "max_por_ativo": cfg.max_por_ativo, "poe_max": poe_max},
         })
 
     df = df[mask].copy()
@@ -459,7 +468,10 @@ def scan_scanner(
         if allowed:
             df = df[df["ticker"].isin(allowed)]
 
-    # Monte Carlo — ou, sem ele, a POE risk-neutral que já vem no scanner.
+    # Porteiro de probabilidade de exercício (PoE): Monte Carlo quando há vol do
+    # ativo; senão a POE risk-neutral que já vem no scanner (OpLab). O teto
+    # (poe_max) é SEMPRE aplicado — mesmo com o Monte Carlo desligado — usando a
+    # melhor PoE disponível, para nunca recomendar PUT acima do risco configurado.
     if not df.empty:
         if mc is not None and vol_map:
             gates, ivs, reals = [], [], []
@@ -472,8 +484,16 @@ def scan_scanner(
             df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
             df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
             df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+            df["poe_fonte"] = "Monte Carlo"
+            # Onde o MC não tem vol (ativo fora de DADOS_ATIVOS), cai p/ a POE da
+            # planilha — assim o teto de PoE não fica "cego" nessas linhas.
+            sem_mc = df["poe_mc_gate"].isna()
+            if sem_mc.any():
+                df.loc[sem_mc, "poe_mc_gate"] = df.loc[sem_mc, "poe"]
+                df.loc[sem_mc, "poe_fonte"] = "OpLab"
         else:
-            df["poe_mc_gate"] = df["poe"]  # POE da própria planilha (OpLab)
+            df["poe_mc_gate"] = df["poe"]  # POE risk-neutral da OpLab
+            df["poe_fonte"] = "OpLab"
         if audit is not None:
             validos = [g for g in df["poe_mc_gate"].tolist() if g is not None and not _isnan(g)]
             audit["poe_min"] = round(min(validos), 4) if validos else None
@@ -494,19 +514,30 @@ def scan_scanner(
         return []
 
     df = df.sort_values(by=["profit_rate", "iv_rank"], ascending=[False, False],
-                        na_position="last").head(cfg.top_n)
+                        na_position="last")
+    # Diversificação: no máximo N oportunidades por ativo-mãe (mantém as melhores,
+    # já que está ordenado por taxa de retorno) — evita o Top-N inteiro virar um
+    # papel só. Depois corta no Top-N global.
+    if cfg.max_por_ativo and cfg.max_por_ativo > 0:
+        antes = len(df)
+        df = df[df.groupby("ticker").cumcount() < cfg.max_por_ativo]
+        if audit is not None:
+            audit["diversificacao_cortou"] = int(antes - len(df))
+    df = df.head(cfg.top_n)
 
     records = [_to_record(r) for _, r in df.iterrows()]
     if audit is not None:
         audit["final"] = len(records)
 
-    sig = _underlying_signals(df_dados_ativos)
     for rec in records:
         spot, strike = rec.get("spot"), rec.get("strike")
         rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["premio_estimado"] = False  # scanner = CLOSE real, nunca estimado
+        # Aviso direcional: vender PUT em ação caindo é apostar contra a maré.
+        if rec.get("m9m21_trend") == -1:
+            rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
         rec["motivo"] = _motivo_radar(rec)
         if cfg.usar_trava:
             rec["trava"] = _build_trava(rec, chain, cfg.trava_largura_pct)
@@ -572,6 +603,8 @@ def scan(
     mask = m_dte
     if cfg.require_trend_up:
         mask = mask & (df["m9m21_trend"] == 1)
+    elif cfg.evitar_tendencia_baixa:
+        mask = mask & (df["m9m21_trend"].fillna(0) != -1)
 
     if audit is not None:
         audit.update({
@@ -640,7 +673,14 @@ def scan(
 
     df = df.sort_values(
         by=["profit_rate", "iv_rank"], ascending=[False, False], na_position="last"
-    ).head(cfg.top_n)
+    )
+    # Diversificação: no máximo N oportunidades por ativo-mãe (mantém as melhores).
+    if cfg.max_por_ativo and cfg.max_por_ativo > 0:
+        antes = len(df)
+        df = df[df.groupby("ticker").cumcount() < cfg.max_por_ativo]
+        if audit is not None:
+            audit["diversificacao_cortou"] = int(antes - len(df))
+    df = df.head(cfg.top_n)
 
     records = [_to_record(r) for _, r in df.iterrows()]
     if audit is not None:
@@ -653,6 +693,8 @@ def scan(
         rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
+        if rec.get("m9m21_trend") == -1:
+            rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
         rec["motivo"] = _motivo_radar(rec)
         rec["premio"], rec["premio_estimado"], rec["premio_fonte"] = _premio_opcao(rec, prem_map)
         if rec["premio_estimado"]:
