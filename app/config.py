@@ -176,8 +176,8 @@ PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "SIDE", "TIPO", "NIV
                         "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO", "TOQUE"]
 PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STRIKE", "SPOT",
                        "DIST_PCT", "PREMIO", "PREMIO_FONTE", "IV_RANK", "TAXA_RETORNO", "POE_MC",
-                       "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
-                       "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
+                       "VOLUME_FIN", "TRAVA_VENDE_OPCAO", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
+                       "TRAVA_COMPRA_OPCAO", "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
                        "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE", "TOQUE"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)

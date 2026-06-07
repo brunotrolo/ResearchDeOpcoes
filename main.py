@@ -252,7 +252,8 @@ def _rad_panel_row(ts: str, o: dict) -> list:
             o.get("strike"), o.get("spot"), o.get("dist_pct"), o.get("premio"), fonte,
             o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"),
             o.get("volume_fin"),
-            tr.get("sell_strike"), tr.get("sell_premio"), tr.get("buy_strike"), tr.get("buy_premio"),
+            tr.get("sell_opt"), tr.get("sell_strike"), tr.get("sell_premio"),
+            tr.get("buy_opt"), tr.get("buy_strike"), tr.get("buy_premio"),
             tr.get("credito"), tr.get("risco_max"), tr.get("retorno_risco"),
             o.get("motivo"), o.get("analise"), o.get("toque_gate")]
 
