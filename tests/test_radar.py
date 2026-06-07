@@ -56,3 +56,17 @@ def test_ordena_por_profit_rate():
     cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
     opps = radar.scan(df, cfg=cfg)
     assert [o["option_ticker"] for o in opps] == ["MAIOR", "MENOR"]
+
+
+def test_janela_dte():
+    df = pd.DataFrame([
+        _opt(OPTION_TICKER="DENTRO", TICKER="VALE3", STRIKE="76.00", SPOT="78.99",
+             SPOT_STRIKE_RATIO="1.05", IV_RANK="65", PROFIT_RATE_IF_EXERCISED="3.5", DTE_CALENDAR="30"),
+        _opt(OPTION_TICKER="CURTO", TICKER="VALE3", STRIKE="76.00", SPOT="78.99",
+             SPOT_STRIKE_RATIO="1.05", IV_RANK="65", PROFIT_RATE_IF_EXERCISED="9", DTE_CALENDAR="10"),
+        _opt(OPTION_TICKER="LONGO", TICKER="VALE3", STRIKE="76.00", SPOT="78.99",
+             SPOT_STRIKE_RATIO="1.05", IV_RANK="65", PROFIT_RATE_IF_EXERCISED="9", DTE_CALENDAR="120"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)  # dte_min=21, dte_max=45
+    opps = radar.scan(df, cfg=cfg)
+    assert [o["option_ticker"] for o in opps] == ["DENTRO"]

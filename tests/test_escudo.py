@@ -88,3 +88,29 @@ def test_compra_exercida_e_control_flag_zero_sao_ignoradas():
                PL_VALUE="-R$ 100,00", MAX_LOSS="R$ 1.000,00", DTE_CALENDAR="5"),
     ]
     assert escudo.analyze(_df(rows), HOJE) == []
+
+
+def test_gamma_alto_gera_aviso():
+    alerts = escudo.analyze(_df([_ativa(
+        OPTION_TICKER="G1", MONEYNESS="OTM", SECTOR="X", STRIKE="R$ 10,00", SPOT="R$ 11,00",
+        ENTRY_PRICE="R$ 1,00", LAST_PREMIUM="R$ 0,50", DELTA="-0,15", GAMMA="0,40",
+        PL_VALUE="R$ 50,00", MAX_LOSS="R$ 5.000,00", DTE_CALENDAR="40")]), HOJE)
+    assert alerts and alerts[0]["nivel"] == "AVISO"
+    assert "GAMMA_ALTO" in alerts[0]["motivo"]
+
+
+def test_portfolio_hhi_e_exposicao_ibov():
+    def _banco(opt, ticker, strike, spot):
+        return _ativa(OPTION_TICKER=opt, TICKER=ticker, MONEYNESS="OTM", SECTOR="BANCOS",
+                      NOTIONAL="R$ 10.000,00", STRIKE=strike, SPOT=spot, ENTRY_PRICE="R$ 1,00",
+                      LAST_PREMIUM="R$ 0,50", DELTA="-0,20", PL_VALUE="R$ 50,00",
+                      MAX_LOSS="R$ 10.000,00", DTE_CALENDAR="40")
+    rows = [_banco("A", "BBAS3", "R$ 20,00", "R$ 22,00"),
+            _banco("B", "BBDC4", "R$ 18,00", "R$ 20,00"),
+            _banco("C", "ITUB4", "R$ 30,00", "R$ 33,00")]
+    correl = pd.DataFrame([dict(TICKER="BBAS3", CORREL_VALUE="0.85"),
+                           dict(TICKER="BBDC4", CORREL_VALUE="0.84"),
+                           dict(TICKER="ITUB4", CORREL_VALUE="0.80")])
+    port = {a["option_ticker"]: a for a in escudo.analyze_portfolio(_df(rows), correl)}
+    assert "PORTFOLIO_HHI" in port and port["PORTFOLIO_HHI"]["nivel"] == "ALERTA"
+    assert "PORTFOLIO_IBOV" in port and port["PORTFOLIO_IBOV"]["nivel"] == "ALERTA"

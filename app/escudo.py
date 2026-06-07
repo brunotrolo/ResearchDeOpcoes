@@ -22,7 +22,7 @@ from datetime import date
 
 import pandas as pd
 
-from app import config, frames, parsing
+from app import config, frames, parsing, risk_metrics
 
 _NIVEL_RANK = {"OK": 0, "AVISO": 1, "ALERTA": 2, "CRITICO": 3}
 
@@ -49,6 +49,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     moneyness = parsing.to_upper(row.get("moneyness"))
     delta = row.get("delta")
     abs_delta = abs(delta) if delta is not None else None
+    gamma = row.get("gamma")
     entry = row.get("entry_price")
     last = row.get("last_premium")
     pl_value = row.get("pl_value")
@@ -112,6 +113,11 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         nivel = _escalate(nivel, "CRITICO")
         motivos.append(f"PERDA_{loss_ratio*100:.0f}%_DO_MAXLOSS")
 
+    # --- Sinal extra: Gamma alto = pré-perigo (aceleração do delta) ---
+    if gamma is not None and gamma >= cfg.gamma_max:
+        nivel = _escalate(nivel, "AVISO")
+        motivos.append(f"GAMMA_ALTO({gamma:.2f})")
+
     # --- Heads-up de vencimento próximo (AVISO, sem e-mail) p/ pernas saudáveis ---
     if nivel == "OK" and dte is not None and dte <= cfg.dte_critical:
         nivel = "AVISO"
@@ -131,6 +137,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         "strike": row.get("strike"),
         "spot": row.get("spot"),
         "delta": delta,
+        "gamma": gamma,
         "poe": poe,
         "entry_price": entry,
         "last_premium": last,
@@ -146,12 +153,13 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     """Constrói um DataFrame normalizado (colunas lógicas, valores parseados)."""
     out = pd.DataFrame(index=df.index)
-    for field in ("option_ticker", "ticker", "id_strategy", "expiry"):
+    for field in ("option_ticker", "ticker", "id_strategy", "expiry", "sector"):
         out[field] = frames.raw(df, "ativas", field)
     for field in ("side", "option_type", "moneyness", "status"):
         out[field] = frames.txt(df, "ativas", field)
-    for field in ("strike", "spot", "entry_price", "last_premium", "delta", "poe",
-                  "pl_value", "pl_pct", "max_loss", "dte_calendar", "control_flag"):
+    for field in ("strike", "spot", "entry_price", "last_premium", "delta", "gamma",
+                  "poe", "pl_value", "pl_pct", "max_loss", "notional", "dte_calendar",
+                  "control_flag"):
         out[field] = frames.num(df, "ativas", field)
     return out
 
@@ -177,6 +185,77 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
             alerts.append(result)
 
     alerts.sort(key=lambda a: (_NIVEL_RANK[a["nivel"]], -(a.get("pl_value") or 0)), reverse=True)
+    return alerts
+
+
+def _portfolio_alert(key: str, motivo: str, nivel: str, descricao: str, acao: str, extra: dict) -> dict:
+    """Monta um alerta de nível de carteira no mesmo formato dos alertas por-perna.
+
+    `key` é o identificador único (vira option_ticker), para o dedupe não fundir
+    alertas de carteira distintos (ex.: PORTFOLIO_HHI vs PORTFOLIO_IBOV).
+    """
+    base = {
+        "option_ticker": key, "ticker": "—", "id_strategy": key,
+        "side": "—", "option_type": "—", "moneyness": "—", "dte": None,
+        "strike": None, "spot": None, "delta": None, "gamma": None, "poe": None,
+        "entry_price": None, "last_premium": None, "buyback_mult": None,
+        "pl_value": None, "loss_ratio": None, "nivel": nivel, "motivo": motivo,
+        "descricao": descricao, "acao_sugerida": acao,
+    }
+    base.update(extra)
+    return base
+
+
+def _correl_map(df_correl: pd.DataFrame | None) -> dict[str, float]:
+    if df_correl is None or df_correl.empty:
+        return {}
+    tickers = frames.raw(df_correl, "correl", "ticker")
+    valores = frames.num(df_correl, "correl", "correl_value")
+    return {str(t).strip().upper(): v
+            for t, v in zip(tickers, valores) if t and not pd.isna(v)}
+
+
+def analyze_portfolio(df_ativas: pd.DataFrame, df_correl: pd.DataFrame | None = None,
+                      cfg: config.EscudoCfg | None = None) -> list[dict]:
+    """Alertas de RISCO DE CARTEIRA: concentração setorial (HHI) e exposição ao IBOV."""
+    cfg = cfg or config.ESCUDO
+    if df_ativas is None or df_ativas.empty:
+        return []
+
+    norm = _normalize(df_ativas)
+    norm = norm[norm["status"] == "ATIVO"]
+    if cfg.only_short_legs:
+        norm = norm[norm["side"] == "VENDA"]
+    norm = norm[~(norm["control_flag"] == 0)]
+    if norm.empty:
+        return []
+
+    # Peso de cada posição = NOTIONAL (capital exposto); fallback: 1 por posição.
+    pesos = [(n if (n is not None and not pd.isna(n) and n > 0) else 0.0) for n in norm["notional"]]
+    if not any(pesos):
+        pesos = [1.0] * len(norm)
+    setores = list(norm["sector"])
+    tickers = [str(t).strip().upper() for t in norm["ticker"]]
+
+    alerts: list[dict] = []
+
+    hhi = risk_metrics.hhi_setorial(setores, pesos)
+    if hhi is not None and hhi > cfg.hhi_max:
+        alerts.append(_portfolio_alert(
+            "PORTFOLIO_HHI", f"HHI_SETORIAL({hhi:.2f})", "ALERTA",
+            f"Concentração setorial alta (HHI {hhi:.2f} > {cfg.hhi_max:.2f})",
+            "Diversificar setores; evitar novas posições no setor dominante",
+            {"hhi": round(hhi, 4)}))
+
+    correl_map = _correl_map(df_correl)
+    exp = risk_metrics.exposicao_ibov(tickers, pesos, correl_map, cfg.ibov_correl_threshold)
+    if exp is not None and exp > cfg.ibov_exposure_max:
+        alerts.append(_portfolio_alert(
+            "PORTFOLIO_IBOV", f"EXPOSICAO_IBOV({exp*100:.0f}%)", "ALERTA",
+            f"Carteira {exp*100:.0f}% correlacionada ao IBOV (> {cfg.ibov_exposure_max*100:.0f}%)",
+            "Reduzir exposição direcional; considerar hedge de índice",
+            {"exposicao_ibov": round(exp, 4)}))
+
     return alerts
 
 

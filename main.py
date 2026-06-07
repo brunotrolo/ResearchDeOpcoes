@@ -44,12 +44,18 @@ def _now_str(tz) -> str:
 
 
 def _run_escudo(log: Logbook, tz) -> None:
-    log.info("ESCUDO", "Lendo Painel_Ativas")
+    log.info("ESCUDO", "Lendo PAINEL_ATIVAS e RANKING_CORREL_IBOV")
     df = sheets_client.read_tab("ativas")
+    try:
+        df_correl = sheets_client.read_tab("correl")
+    except Exception as exc:
+        df_correl = None
+        log.warn("ESCUDO", "Sem RANKING_CORREL_IBOV (segue sem exposição IBOV)", {"erro": str(exc)})
     log.info("ESCUDO", f"{len(df)} linhas lidas")
 
     today = datetime.now(tz).date()
-    alerts = escudo.analyze(df, today)
+    # Risco de carteira (HHI, exposição IBOV) + risco por perna.
+    alerts = escudo.analyze_portfolio(df, df_correl) + escudo.analyze(df, today)
     log.info("ESCUDO", f"{len(alerts)} alerta(s) detectado(s)",
              {"niveis": [a["nivel"] for a in alerts]})
 

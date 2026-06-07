@@ -48,7 +48,8 @@ Erros de um módulo são capturados e logados (aba LOGS) sem derrubar o outro.
 | `market_gate.py` | Consulta OpLab `/market/status`. |
 | `notifier.py` | E-mail (SMTP/SSL): alerta urgente (Escudo) e oportunidade (Radar). |
 | `state.py` | Lock, dedupe de alertas/oportunidades, marca de última execução. |
-| `escudo.py` | **Módulo 1** — regra de defesa por moneyness. |
+| `risk_metrics.py` | Métricas de carteira (HHI, exposição IBOV, sizing, spread). |
+| `escudo.py` | **Módulo 1** — defesa por perna (moneyness) + carteira. |
 | `radar.py` | **Módulo 2** — filtros de prospecção. |
 
 ## Regra do Escudo (perna vendida), por moneyness
@@ -64,16 +65,26 @@ PAINEL_ATIVAS. Combina múltiplo de recompra (`LAST_PREMIUM/ENTRY_PRICE`),
 | ITM | — | baseline (sempre) | DTE ≤ 15 **ou** perda ≥ 50% do MAX_LOSS |
 
 A banda de `|Δ|` atua **só na zona OTM** (early-warning de drift): em ATM/ITM o
-`|Δ|` já é alto por natureza e o que manda é moneyness + DTE + perda. Números em
-`.env` (`ESCUDO_*`). E-mail só em `ALERTA`/`CRÍTICO`; `AVISO` fica em LOGS/histórico.
-Dedupe: 1 alerta/opção/dia, re-dispara se escalar de nível.
+`|Δ|` já é alto por natureza e o que manda é moneyness + DTE + perda. `Gamma`
+alto (≥ `ESCUDO_GAMMA_MAX`) adiciona um AVISO de "pré-perigo" (aceleração).
+Números em `.env` (`ESCUDO_*`). E-mail só em `ALERTA`/`CRÍTICO`; `AVISO` fica em
+LOGS/histórico. Dedupe: 1 alerta/opção/dia, re-dispara se escalar de nível.
+
+### Risco de carteira (agregado)
+Além da análise por perna, o Escudo avalia a carteira como um todo
+(`escudo.analyze_portfolio`, pesos = `NOTIONAL`):
+- **HHI setorial** — índice de concentração por setor. `HHI > 0.50` → ALERTA.
+- **Exposição ao IBOV** — fração do portfólio em ativos com `|correlação| ≥ 0.50`
+  (de `RANKING_CORREL_IBOV`). `> 80%` → ALERTA de risco direcional sistêmico.
 
 ## Filtros do Radar
 
 `CATEGORY == PUT` · `IV_RANK ≥ 50` · `SPOT_STRIKE_RATIO ≥ 1.02` ·
-`VOLUME_FIN > piso` (liquidez) · universo monitorado `DADOS_ATIVOS`
+`DTE ∈ [21, 45]` (sweet spot) · `VOLUME_FIN > piso` (liquidez) ·
+(opcional) spread bid-ask relativo `≤ 0.20` · universo monitorado `DADOS_ATIVOS`
 (com `HAS_OPTIONS = TRUE`) · (opcional) tendência M9M21 = alta.
-Ranqueia por `PROFIT_RATE` e `IV_RANK`, envia Top-N. Parâmetros em `.env` (`RADAR_*`).
+Ranqueia por `PROFIT_RATE` e `IV_RANK`, envia Top-N. Se `CAPITAL_DISPONIVEL > 0`,
+sugere o nº de contratos (risco de `RISK_PER_TRADE` por trade). Parâmetros em `.env` (`RADAR_*`).
 
 ## Locale numérico por aba
 
