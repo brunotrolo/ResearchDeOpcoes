@@ -115,7 +115,7 @@ TABS: dict[str, TabSpec] = {
     "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ",")),
     "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
     "config":       TabSpec(_env("TAB_CONFIG", "CONFIG"),                       _env_int("TAB_CONFIG_HEADER_ROW", 1),       _env("TAB_CONFIG_DECIMAL", ",")),
-    "scanner":      TabSpec(_env("TAB_SCANNER", "SCANNER_OPCOES"),              _env_int("TAB_SCANNER_HEADER_ROW", 1),      _env("TAB_SCANNER_DECIMAL", ",")),
+    "scanner":      TabSpec(_env("TAB_SCANNER", "SCANNER_OPCOES"),              _env_int("TAB_SCANNER_HEADER_ROW", 1),      _env("TAB_SCANNER_DECIMAL", "auto")),
 }
 
 # Abas de escrita (logs + histórico). Criadas automaticamente se não existirem.
@@ -241,9 +241,10 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         # abas; se algum diferir, o leitor cai para a estimativa (VE/strike).
         "option_ticker": "OPTION_TICKER",
         "ticker": "TICKER",
-        "category": "CATEGORY",        # PUT / CALL
+        "category": "CATEGORY",        # PUT / CALL (algumas exportações usam TYPE)
+        "type": "TYPE",                # PUT / CALL (redundante com CATEGORY)
         "strike": "STRIKE",
-        "close": "CLOSE",              # último preço/prêmio da opção
+        "close": "CLOSE",              # último preço/prêmio negociado da opção
         "bid": "BID",
         "ask": "ASK",
         "dte": "DTE_CALENDAR",
