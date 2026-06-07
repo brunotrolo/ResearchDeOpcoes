@@ -207,6 +207,90 @@ def _write_heartbeat(log: Logbook, tz, summary: dict, status: str, duration_s: f
         log.error("MONITOR", "Falha ao gravar heartbeat", {"erro": str(exc)})
 
 
+# --- formatação curta p/ logs didáticos ------------------------------------
+def _g(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):g}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _pctg(v) -> str:
+    return "—" if v is None else f"{float(v) * 100:.0f}%"
+
+
+# --- linhas dos painéis (alimentam o web app; lidas por NOME do cabeçalho) ---
+def _esc_panel_row(ts: str, a: dict) -> list:
+    return [ts, a.get("ticker"), a.get("option_ticker"), a.get("side"), a.get("option_type"),
+            a.get("nivel"), a.get("moneyness"), a.get("dte"), a.get("expiry"), a.get("quantity"),
+            a.get("spot"), a.get("strike"), a.get("dist_pct"), a.get("entry_price"),
+            a.get("last_premium"), a.get("buyback_mult"), a.get("break_even"), a.get("delta"),
+            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"), a.get("pl_value"), a.get("pl_pct"),
+            a.get("max_gain"), a.get("max_profit_pct"), a.get("notional"),
+            a.get("analise"), a.get("acao_sugerida")]
+
+
+def _rad_panel_row(ts: str, o: dict) -> list:
+    tr = o.get("trava") or {}
+    fonte = "estimado (≈)" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
+    return [ts, o.get("ticker"), o.get("option_ticker"), o.get("expiry_fmt"), o.get("dte"),
+            o.get("strike"), o.get("spot"), o.get("dist_pct"), o.get("premio"), fonte,
+            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"), o.get("volume_fin"),
+            tr.get("sell_strike"), tr.get("sell_premio"), tr.get("buy_strike"), tr.get("buy_premio"),
+            tr.get("credito"), tr.get("risco_max"), tr.get("retorno_risco"),
+            o.get("motivo"), o.get("analise")]
+
+
+# --- logs didáticos (passo a passo, p/ auditoria detalhada) -----------------
+def _log_escudo_alerta(log: Logbook, a: dict) -> None:
+    if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
+        log.info("ESCUDO", f"Carteira [{a['nivel']}]: {a.get('descricao', '')}",
+                 {"acao": a.get("acao_sugerida")})
+        return
+    cab = (f"{a.get('ticker')} {a.get('option_ticker')} [{a['nivel']}] — {a.get('moneyness')}, "
+           f"DTE {_g(a.get('dte'))}, Δ {_g(a.get('delta'))}, γ {_g(a.get('gamma'))}, "
+           f"recompra {_g(a.get('buyback_mult'))}x, PoE {_pctg(a.get('poe'))}, "
+           f"PoE-MC {_pctg(a.get('poe_mc_gate'))}, P/L R$ {_g(a.get('pl_value'))} ({_g(a.get('pl_pct'))}%)")
+    log.info("ESCUDO", f"Posição {cab}",
+             {"gatilhos": a.get("motivo"), "acao": a.get("acao_sugerida"), "analise": a.get("analise")})
+
+
+def _log_radar_funil(log: Logbook, f: dict) -> None:
+    fl = f.get("filtros", {})
+    log.info("RADAR", f"Funil — partida: {f.get('total', 0)} opções na aba de lucros")
+    log.info("RADAR", f"Funil 1/7 — categoria PUT: {f.get('put', 0)} de {f.get('total', 0)}")
+    log.info("RADAR", f"Funil 2/7 — IV Rank ≥ {fl.get('iv_rank_min')}: {f.get('iv_rank_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 3/7 — distância spot/strike ≥ {fl.get('ratio_min')}: {f.get('ratio_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 4/7 — liquidez (volume mínimo): {f.get('volume_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 5/7 — DTE entre {fl.get('dte_min')} e {fl.get('dte_max')} dias: {f.get('dte_ok', 0)} sobram")
+    log.info("RADAR", f"Funil 6/7 — tendência/whitelist: {f.get('apos_tendencia', 0)} sobram")
+    if "apos_montecarlo" in f:
+        log.info("RADAR", f"Funil 7/7 — Monte Carlo (PoE ≤ máx): {f.get('apos_montecarlo', 0)} sobram "
+                          f"(menor PoE visto: {_pctg(f.get('poe_min'))})")
+    log.info("RADAR", f"Funil — FINAL: {f.get('final', 0)} oportunidade(s) selecionada(s) (Top {f.get('final', 0)})")
+    log.info("RADAR", f"Prêmios: {f.get('premios_reais', 0)} REAIS (scanner) · "
+                      f"{f.get('premios_estimados', 0)} estimados (≈) · travas montadas: {f.get('travas_montadas', 0)}",
+             {"scanner_opcoes_indexadas": f.get("scanner_opcoes"),
+              "scanner_puts_na_cadeia": f.get("scanner_puts_na_cadeia")})
+
+
+def _log_radar_opp(log: Logbook, o: dict) -> None:
+    src = "estimado ≈" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
+    cab = (f"{o.get('ticker')} {o.get('option_ticker')} — strike R$ {_g(o.get('strike'))}, "
+           f"prêmio R$ {_g(o.get('premio'))} ({src}), IVR {_g(o.get('iv_rank'))}, "
+           f"PoE {_pctg(o.get('poe_mc_gate'))}, DTE {_g(o.get('dte'))}, vol R$ {_g(o.get('volume_fin'))}")
+    tr = o.get("trava")
+    if tr:
+        det = (f"TRAVA DE ALTA: vende PUT {_g(tr['sell_strike'])} @ R$ {_g(tr['sell_premio'])} + "
+               f"compra PUT {_g(tr['buy_strike'])} @ R$ {_g(tr['buy_premio'])} → crédito R$ {_g(tr['credito'])}, "
+               f"risco máx R$ {_g(tr['risco_max'])}, retorno/risco {_pctg(tr.get('retorno_risco'))}")
+    else:
+        det = f"SEM trava: {o.get('trava_motivo', '—')} (recomenda PUT a seco)"
+    log.info("RADAR", f"Oportunidade {cab}", {"recomendacao": det, "porque": o.get("motivo")})
+
+
 def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     df = sheets_client.read_tab("ativas")
     _audit_read(log, "PAINEL_ATIVAS", df)
@@ -239,13 +323,14 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     log.info("ESCUDO", f"{len(alerts)} alerta(s) detectado(s)",
              {"por_nivel": por_nivel,
               "detalhe": [{k: a.get(k) for k in _ALERT_FIELDS} for a in alerts]})
+    # Auditoria detalhada: uma linha por posição, em sequência (CRITICO -> AVISO).
+    for a in alerts:
+        _log_escudo_alerta(log, a)
 
     ts = _now_str(tz)
     if not config.RUNTIME.dry_run:
         # PAINEL_ESCUDO (sobrescreve = estado atual, alimenta o web app)
-        painel = [[ts, a.get("ticker"), a.get("option_ticker"), a["nivel"], a.get("moneyness"), a.get("dte"),
-                   a.get("delta"), a.get("poe"),
-                   a.get("pl_value"), a.get("analise"), a.get("acao_sugerida")] for a in alerts]
+        painel = [_esc_panel_row(ts, a) for a in alerts]
         try:
             sheets_client.replace_tab(config.TAB_PAINEL_ESCUDO, config.PAINEL_ESCUDO_HEADER, painel)
         except Exception as exc:
@@ -297,15 +382,15 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     funil: dict = {}
     opps = radar.scan(df_lucros, df_volumes, df_dados, cfg=radar_cfg, audit=funil,
                       mc=sim, vol_map=vmap, poe_max=poe_max, df_scanner=df_scanner)
-    log.info("RADAR", "Funil de filtros", funil)
+    _log_radar_funil(log, funil)
     summary["radar_opps"] = len(opps)
-    log.info("RADAR", f"{len(opps)} oportunidade(s) após filtros",
-             {"detalhe": [{k: o.get(k) for k in _OPP_FIELDS} for o in opps]})
+    # Auditoria detalhada: uma linha por oportunidade, com prêmio, fonte e Trava.
+    for o in opps:
+        _log_radar_opp(log, o)
 
     ts = _now_str(tz)
     if not config.RUNTIME.dry_run:
-        painel = [[ts, o.get("ticker"), o.get("option_ticker"), o.get("strike"), o.get("spot"),
-                   o.get("dist_pct"), o.get("iv_rank"), o.get("dte"), o.get("analise")] for o in opps]
+        painel = [_rad_panel_row(ts, o) for o in opps]
         try:
             sheets_client.replace_tab(config.TAB_PAINEL_RADAR, config.PAINEL_RADAR_HEADER, painel)
         except Exception as exc:

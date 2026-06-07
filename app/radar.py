@@ -155,6 +155,22 @@ def _mid(bid, ask):
     return None
 
 
+def _premio_valido(p, strike) -> bool:
+    """Prêmio plausível: positivo e menor que o strike (teto teórico de uma PUT).
+    Descarta valores 0/vazios e outliers (ex.: CLOSE 'stale' maior que o strike)."""
+    return p is not None and p > 0 and (not strike or p < strike)
+
+
+def _resolve_premio(close, mid_price, price, bid, ask, strike):
+    """Melhor prêmio REAL da linha do scanner + a FONTE usada.
+    Ordem de preferência: CLOSE -> MID_PRICE -> PRICE -> meio do book (bid+ask)/2."""
+    for valor, fonte in ((close, "CLOSE"), (mid_price, "MID_PRICE"),
+                         (price, "PRICE"), (_mid(bid, ask), "BID/ASK")):
+        if _premio_valido(valor, strike):
+            return round(float(valor), 2), fonte
+    return None, None
+
+
 def _r2(v) -> str:
     """Formata um número com 2 casas em pt-BR (8.0 -> '8,00')."""
     return "—" if v is None else f"{v:.2f}".replace(".", ",")
@@ -178,19 +194,22 @@ def scanner_index(df_scanner: "pd.DataFrame | None") -> tuple[dict, dict]:
     typ = frames.txt(df_scanner, "scanner", "type")
     strike = frames.num(df_scanner, "scanner", "strike")
     close = frames.num(df_scanner, "scanner", "close")
+    price = frames.num(df_scanner, "scanner", "price")
+    mid_price = frames.num(df_scanner, "scanner", "mid_price")
     bid = frames.num(df_scanner, "scanner", "bid")
     ask = frames.num(df_scanner, "scanner", "ask")
     dte = frames.num(df_scanner, "scanner", "dte")
     for i in range(len(df_scanner)):
         o = str(opt.iloc[i]).strip().upper()
-        c_close, c_bid, c_ask = _v(close, i), _v(bid, i), _v(ask, i)
-        premio = c_close if c_close else _mid(c_bid, c_ask)   # CLOSE, senão meio do book
+        k = _v(strike, i)
+        premio, fonte = _resolve_premio(_v(close, i), _v(mid_price, i), _v(price, i),
+                                        _v(bid, i), _v(ask, i), k)
         if o:
-            prem_map[o] = {"premio": premio, "close": c_close, "bid": c_bid, "ask": c_ask}
+            prem_map[o] = {"premio": premio, "fonte": fonte, "close": _v(close, i),
+                           "bid": _v(bid, i), "ask": _v(ask, i)}
         if not (_eh_put(cat.iloc[i]) or _eh_put(typ.iloc[i])):
             continue
         t = str(tkr.iloc[i]).strip().upper()
-        k = _v(strike, i)
         if t and k:
             chain.setdefault(t, []).append(
                 {"strike": k, "premio": premio, "opt": o, "dte": _v(dte, i)})
@@ -215,18 +234,42 @@ def _chain_from_lucros(df_norm: "pd.DataFrame") -> dict:
     return chain
 
 
-def _premio_opcao(rec: dict, prem_map: dict) -> tuple[float | None, bool]:
-    """Prêmio da PUT vendida: CLOSE real do scanner, senão estimativa VE/strike.
+def _premio_opcao(rec: dict, prem_map: dict) -> tuple[float | None, bool, str]:
+    """Prêmio da PUT vendida: valor REAL do scanner, senão estimativa VE/strike.
 
-    Devolve (premio, estimado). estimado=True => valor aproximado (rótulo '≈')."""
+    Devolve (premio, estimado, fonte). estimado=True => aproximado (rótulo '≈').
+    fonte = coluna usada (CLOSE/MID_PRICE/PRICE/BID/ASK) ou 'VE≈' / 'sem match'."""
     o = str(rec.get("option_ticker") or "").strip().upper()
     info = prem_map.get(o)
     if info and info.get("premio"):
-        return float(info["premio"]), False
+        return float(info["premio"]), False, info.get("fonte") or "SCANNER"
     ve, k = rec.get("ve_over_strike"), rec.get("strike")
     if ve is not None and not _isnan(ve) and k:
-        return float(round(ve / 100.0 * k, 2)), True
-    return None, True
+        return float(round(ve / 100.0 * k, 2)), True, ("VE≈" if o in prem_map else "VE≈ (fora do scanner)")
+    return None, True, "sem match"
+
+
+def _porque_sem_trava(rec: dict, chain: dict, largura_pct: float) -> str:
+    """Explica, em português, por que NÃO foi possível montar a Trava (para o log)."""
+    t = str(rec.get("ticker") or "").strip().upper()
+    ks = rec.get("strike")
+    if not rec.get("premio"):
+        return "sem prêmio da PUT vendida"
+    legs = chain.get(t, [])
+    if not legs:
+        return f"cadeia de PUTs de {t} ausente no scanner"
+    abaixo = [c for c in legs if c.get("strike") and c["strike"] < ks]
+    if not abaixo:
+        return f"nenhuma PUT com strike < {ks:g} na cadeia"
+    com_premio = [c for c in abaixo if c.get("premio") is not None]
+    if not com_premio:
+        return "pernas de proteção sem prêmio (preço vazio no scanner)"
+    dte = rec.get("dte")
+    mesmo_venc = [c for c in com_premio
+                  if dte is None or c.get("dte") is None or abs(c["dte"] - dte) <= 3]
+    if not mesmo_venc:
+        return "perna de proteção só existe em outro vencimento"
+    return "crédito ou largura não positivos"
 
 
 def _build_trava(rec: dict, chain: dict, largura_pct: float) -> dict | None:
@@ -406,16 +449,20 @@ def scan(
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["motivo"] = _motivo_radar(rec)
-        rec["premio"], rec["premio_estimado"] = _premio_opcao(rec, prem_map)
+        rec["premio"], rec["premio_estimado"], rec["premio_fonte"] = _premio_opcao(rec, prem_map)
         if cfg.usar_trava:
             rec["trava"] = _build_trava(rec, chain, cfg.trava_largura_pct)
+            if rec["trava"] is None:
+                rec["trava_motivo"] = _porque_sem_trava(rec, chain, cfg.trava_largura_pct)
         rec["analise"] = analise(rec)
 
     if audit is not None:
         audit["scanner_opcoes"] = len(prem_map)
+        audit["scanner_puts_na_cadeia"] = sum(len(v) for v in chain.values())
         audit["premios_reais"] = sum(1 for r in records if not r.get("premio_estimado"))
         audit["premios_estimados"] = sum(1 for r in records if r.get("premio_estimado"))
         audit["travas_montadas"] = sum(1 for r in records if r.get("trava"))
+        audit["oportunidades"] = [_audit_opp(r) for r in records]
 
     # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
     # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).
@@ -426,6 +473,25 @@ def scan(
                 rec["contratos_sugeridos"] = risk_metrics.tamanho_posicao(
                     config.CAPITAL_DISPONIVEL, strike * 100, config.RISK_PER_TRADE)
     return records
+
+
+def _audit_opp(r: dict) -> dict:
+    """Linha de auditoria (didática) de uma oportunidade, p/ o log detalhado."""
+    tr = r.get("trava")
+    if tr:
+        trava_txt = (f"vende PUT {tr['sell_strike']:g}@{tr['sell_premio']:g} + "
+                     f"compra PUT {tr['buy_strike']:g}@{tr['buy_premio']:g} "
+                     f"(crédito {tr['credito']:g}, risco {tr['risco_max']:g})")
+    else:
+        trava_txt = f"SEM trava — {r.get('trava_motivo', '—')}"
+    return {
+        "opcao": r.get("option_ticker"), "ticker": r.get("ticker"),
+        "strike": r.get("strike"), "dte": r.get("dte"),
+        "premio": r.get("premio"), "fonte_premio": r.get("premio_fonte"),
+        "estimado": bool(r.get("premio_estimado")),
+        "iv_rank": r.get("iv_rank"), "poe_mc": r.get("poe_mc_gate"),
+        "trava": trava_txt,
+    }
 
 
 def _to_record(row: pd.Series) -> dict:

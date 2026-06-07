@@ -1,31 +1,31 @@
 /**
  * Painel de observabilidade do motor ResearchDeOpcoes (Google Apps Script).
  *
- * Lê as abas MONITOR (heartbeat) + PAINEL_ESCUDO + PAINEL_RADAR + LOGS e entrega:
- *   1) doGet -> dashboard web responsivo (celular + desktop) com status do
- *      motor, resumo da última execução, posições em atenção (Escudo),
- *      oportunidades (Radar, com a Trava de Alta) e os logs recentes.
- *   2) verificarHeartbeat -> "dead-man's switch": e-mail se o motor não rodar
- *      durante o pregão.
+ * Lê MONITOR (heartbeat) + PAINEL_ESCUDO + PAINEL_RADAR + LOGS e entrega um
+ * dashboard web responsivo (celular + desktop) com TODAS as informações que
+ * vão no e-mail: defesa de posições (Escudo) e oportunidades (Radar, com a
+ * Trava de Alta), além de status do motor e logs.
  *
- * Robustez: todo conteúdo dinâmico é ESCAPADO (corrige o erro "Conteúdo HTML
- * inválido" que vinha de textos com '<'/'>' como "M9<M21"); datas e números
- * são formatados em pt-BR (corrige strike/duração aparecendo como data).
+ * Robustez:
+ *   - Os painéis são lidos pelo NOME do cabeçalho (não por índice fixo), então
+ *     a planilha pode ganhar colunas novas sem quebrar o painel.
+ *   - Todo conteúdo dinâmico é ESCAPADO (corrige "Conteúdo HTML inválido").
+ *   - Datas e números formatados em pt-BR (corrige strike/data/duração).
  *
  * COMO USAR:
  *   1. Planilha > Extensões > Apps Script. Cole este arquivo (substitua o antigo).
- *   2. Painel: Implantar > Nova implantação > App da Web > Executar como "Eu"
- *      > Acesso "Somente eu" > Implantar. Salve a URL (atalho no celular).
- *   3. Vigia: ícone de relógio (Acionadores) > verificarHeartbeat > a cada 30 min.
+ *   2. Implantar > Nova implantação > App da Web > Executar como "Eu" > Acesso
+ *      "Somente eu" > Implantar. Salve a URL (atalho no celular).
+ *   3. Acionadores: verificarHeartbeat > a cada 30 min (vigia "dead-man's switch").
  */
 
 const SHEET_ID = '1zuYr3lTOSsVJzvrBJezZ5hFMIM3jpt2jDfR8uCapKds';
 const EMAIL_ALERTA = 'brunotrolo@gmail.com';
 const TZ = 'America/Sao_Paulo';
 const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_PESC = 'PAINEL_ESCUDO', ABA_PRAD = 'PAINEL_RADAR';
-const LIMITE_MIN = 75;            // atraso (min) que liga o alerta no pregão
+const LIMITE_MIN = 75;
 const PREGAO_INI = 10, PREGAO_FIM = 18;
-const REFRESH_S = 120;            // auto-atualização do painel
+const REFRESH_S = 120;
 const GITHUB_ACTIONS = 'https://github.com/brunotrolo/ResearchDeOpcoes/actions';
 
 // ===========================================================================
@@ -41,6 +41,16 @@ function _heartbeat() {
            escudo: r[4], radar: r[5], runUrl: r[6], notes: r[7] };
 }
 
+/** Lê um painel devolvendo { idx: {COLUNA: posição}, rows: [[...]] }. */
+function _readPanel(aba) {
+  const sh = _planilha().getSheetByName(aba);
+  if (!sh || sh.getLastRow() < 2) return { idx: {}, rows: [] };
+  const vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  const idx = {};
+  vals[0].forEach((h, i) => { idx[String(h).trim().toUpperCase()] = i; });
+  return { idx, rows: vals.slice(1) };
+}
+
 function _ultimas(aba, n, ncols) {
   const sh = _planilha().getSheetByName(aba);
   if (!sh || sh.getLastRow() < 2) return [];
@@ -48,18 +58,12 @@ function _ultimas(aba, n, ncols) {
   return sh.getRange(start, 1, last - start + 1, ncols).getValues();
 }
 
-function _todas(aba, ncols) {
-  const sh = _planilha().getSheetByName(aba);
-  if (!sh || sh.getLastRow() < 2) return [];
-  return sh.getRange(2, 1, sh.getLastRow() - 1, ncols).getValues();
-}
-
 // ===========================================================================
-// Avaliação de status
+// Status do motor
 // ===========================================================================
 function _ehPregao() {
   const a = new Date();
-  const dia = parseInt(Utilities.formatDate(a, TZ, 'u'), 10);   // 1=seg ... 7=dom
+  const dia = parseInt(Utilities.formatDate(a, TZ, 'u'), 10);
   const hora = parseInt(Utilities.formatDate(a, TZ, 'H'), 10);
   return dia >= 1 && dia <= 5 && hora >= PREGAO_INI && hora < PREGAO_FIM;
 }
@@ -71,10 +75,7 @@ function _idadeMin(updatedAt) {
 
 function _avaliar() {
   const hb = _heartbeat(), pregao = _ehPregao();
-  if (!hb) {
-    return { cor: '#475569', cor2: '#334155', emoji: '⚪', titulo: 'SEM DADOS',
-             hb: null, idade: null, pregao: pregao };
-  }
+  if (!hb) return { cor: '#475569', cor2: '#334155', emoji: '⚪', titulo: 'SEM DADOS', hb: null, idade: null, pregao };
   const idade = _idadeMin(hb.updatedAt);
   let cor = '#16a34a', cor2 = '#15803d', emoji = '🟢', titulo = 'NO AR';
   const st = String(hb.status || '').toUpperCase();
@@ -89,17 +90,14 @@ function _avaliar() {
 }
 
 // ===========================================================================
-// Formatação / escape (à prova de HTML inválido e de coerção de data)
+// Formatação / escape
 // ===========================================================================
-function _esc(v) {
+function esc(v) {
   if (v == null) return '';
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-
-function _isDate(v) {
-  return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime());
-}
+function _isDate(v) { return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime()); }
 
 function _toDate(v) {
   if (_isDate(v)) return v;
@@ -110,38 +108,29 @@ function _toDate(v) {
   const d = new Date(s.replace(' ', 'T'));
   return isNaN(d.getTime()) ? null : d;
 }
-
-function _toNum(v) {
+function _num(v) {
   if (v === '' || v == null) return null;
   if (typeof v === 'number') return isNaN(v) ? null : v;
-  if (_isDate(v)) return null;                 // valor corrompido por coerção -> sem número
+  if (_isDate(v)) return null;
   let s = String(v).trim().replace(/R\$|%|\s/g, '');
-  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');   // pt-BR
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
-
 function _fmtNum(v, dec) {
-  const n = _toNum(v);
+  const n = _num(v);
   if (n == null) return '—';
   if (dec == null) dec = 2;
-  let s = Math.abs(n).toFixed(dec);
-  const parts = s.split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');   // ponto de milhar
+  const parts = Math.abs(n).toFixed(dec).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return (n < 0 ? '-' : '') + parts[0] + (dec > 0 ? ',' + parts[1] : '');
 }
-
-function _fmtMoney(v) { const n = _toNum(v); return n == null ? '—' : 'R$ ' + _fmtNum(n, 2); }
-function _fmtPct(v, dec) { const n = _toNum(v); return n == null ? '—' : _fmtNum(n, dec == null ? 1 : dec) + '%'; }
-
-function _fmtDateTime(v) {
-  const d = _toDate(v);
-  return d ? Utilities.formatDate(d, TZ, 'dd/MM HH:mm') : (v ? _esc(v) : '—');
-}
-function _fmtDateFull(v) {
-  const d = _toDate(v);
-  return d ? Utilities.formatDate(d, TZ, "dd/MM/yyyy 'às' HH:mm") : (v ? _esc(v) : '—');
-}
+function _fmtMoney(v) { const n = _num(v); return n == null ? '—' : 'R$ ' + _fmtNum(n, 2); }
+function _fmtPct(v, dec) { const n = _num(v); return n == null ? '—' : _fmtNum(n, dec == null ? 1 : dec) + '%'; }
+function _diasTxt(v) { const n = _num(v); return n == null ? '—' : _fmtNum(n, 0) + 'd'; }
+function _fmtDateTime(v) { const d = _toDate(v); return d ? Utilities.formatDate(d, TZ, 'dd/MM HH:mm') : (v ? esc(v) : '—'); }
+function _fmtDateFull(v) { const d = _toDate(v); return d ? Utilities.formatDate(d, TZ, "dd/MM/yyyy 'às' HH:mm") : (v ? esc(v) : '—'); }
+function _fmtDateOnly(v) { const d = _toDate(v); return d ? Utilities.formatDate(d, TZ, 'dd/MM/yyyy') : (v ? esc(v) : '—'); }
 
 function _idadeTxt(m) {
   if (m == null) return '—';
@@ -151,15 +140,12 @@ function _idadeTxt(m) {
   const h = Math.floor(m / 60), r = m % 60;
   return 'há ' + h + 'h' + (r ? ' ' + r + 'min' : '');
 }
-
 function _mercadoLabel(m) {
   const s = String(m == null ? '' : m).trim().toUpperCase();
   if (s === 'A' || s === 'ABERTO') return '🟢 Aberto';
   if (s === 'F' || s === 'FECHADO') return '🔴 Fechado';
-  if (s === '') return '—';
-  return _esc(s);
+  return s === '' ? '—' : esc(s);
 }
-
 function _corNivel(n) {
   n = String(n).toUpperCase();
   if (n === 'CRITICO') return '#dc2626';
@@ -175,83 +161,121 @@ function _corStatus(s) {
 }
 
 // ===========================================================================
-// Componentes HTML
+// Componentes
 // ===========================================================================
 function _chip(label, value) {
-  return "<span class='chip'>" + _esc(label) + " <b>" + value + "</b></span>";
+  const l = label ? esc(label) + ' ' : '';
+  return "<span class='chip'>" + l + "<b>" + value + "</b></span>";
+}
+function _grid(pairs) {
+  let c = '';
+  pairs.forEach(p => {
+    if (p[1] === '—' || p[1] == null) return;
+    c += "<div class='m'><div class='ml'>" + esc(p[0]) + "</div><div class='mv'>" + p[1] + "</div></div>";
+  });
+  return c ? "<div class='mgrid'>" + c + "</div>" : '';
+}
+function _section(titulo, badge, body) {
+  return "<div class='sec'><div class='sechead'><span>" + titulo + "</span>"
+    + (badge ? "<span class='badge'>" + badge + "</span>" : '') + "</div>" + body + "</div>";
 }
 
-function _cardEscudo(rows) {
-  if (!rows.length) {
-    return _card('🛡️ Posições em atenção', '', "<div class='empty'>Tudo tranquilo por aqui. 🎉<br>Nenhuma posição precisa de defesa agora.</div>");
-  }
+function _cardEscudo() {
+  const { idx, rows } = _readPanel(ABA_PESC);
+  if (!rows.length) return _section('🛡️ Posições em atenção', '',
+    "<div class='empty'>Tudo tranquilo por aqui. 🎉<br>Nenhuma posição precisa de defesa agora.</div>");
   const c = { CRITICO: 0, ALERTA: 0, AVISO: 0 };
-  rows.forEach(r => { const n = String(r[3]).toUpperCase(); if (c[n] != null) c[n]++; });
-  const badge = "🔴 " + c.CRITICO + " · 🟠 " + c.ALERTA + " · 🟡 " + c.AVISO;
-  let body = '';
+  rows.forEach(r => { const n = String(r[idx['NIVEL']]).toUpperCase(); if (c[n] != null) c[n]++; });
+  const badge = '🔴 ' + c.CRITICO + ' · 🟠 ' + c.ALERTA + ' · 🟡 ' + c.AVISO;
+  let items = '';
   rows.forEach(r => {
-    const cor = _corNivel(r[3]);
-    const chips = _chip('', _esc(r[4]))                       // moneyness
-      + _chip('DTE', _esc(r[5]) + 'd')
-      + _chip('Δ', _fmtNum(r[6], 2))
-      + _chip('PoE', _fmtPct(_toNum(r[7]) == null ? null : _toNum(r[7]) * 100, 0))
-      + _chip('P/L', _fmtMoney(r[8]));
-    body += "<div class='item' style='border-left-color:" + cor + "'>"
-      + "<div class='row1'><span class='tk'>" + _esc(r[1]) + "</span>"
-      + "<span class='op'>" + _esc(r[2]) + "</span>"
-      + "<span class='nivel' style='background:" + cor + "'>" + _esc(r[3]) + "</span></div>"
-      + "<div class='chips'>" + chips + "</div>"
-      + (r[9] ? "<div class='analise'>" + _esc(r[9]) + "</div>" : '')
-      + (r[10] ? "<div class='acao'>👉 " + _esc(r[10]) + "</div>" : '')
-      + "</div>";
+    const g = n => (idx[n] == null ? '' : r[idx[n]]);
+    const nivel = String(g('NIVEL')).toUpperCase();
+    const cor = _corNivel(nivel);
+    if (String(g('OPCAO')).indexOf('PORTFOLIO') === 0) {
+      items += "<div class='item' style='border-left-color:" + cor + "'>"
+        + "<div class='row1'><span class='tk'>🛡️ Carteira</span>"
+        + "<span class='nivel' style='background:" + cor + "'>" + esc(nivel) + "</span></div>"
+        + (g('ANALISE') ? "<div class='analise'>" + esc(g('ANALISE')) + "</div>" : '')
+        + (g('ACAO') ? "<div class='acao'>👉 " + esc(g('ACAO')) + "</div>" : '') + "</div>";
+      return;
+    }
+    const chips = _chip('', esc(g('MONEYNESS')))
+      + _chip('DTE', _diasTxt(g('DTE')))
+      + _chip('Δ', _fmtNum(g('DELTA'), 2))
+      + _chip('γ', _fmtNum(g('GAMMA'), 2))
+      + _chip('PoE', _fmtPct(_num(g('POE')) == null ? null : _num(g('POE')) * 100, 0))
+      + (g('POE_MC') !== '' ? _chip('PoE-MC', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0)) : '')
+      + _chip('Recompra', _fmtNum(g('RECOMPRA_X'), 2) + 'x');
+    const pl = _fmtMoney(g('PL_VALUE')) + ' (' + _fmtPct(g('PL_PCT'), 0) + ')';
+    const grid = _grid([
+      ['Spot', _fmtMoney(g('SPOT'))], ['Strike', _fmtMoney(g('STRIKE'))], ['Dist.', _fmtPct(g('DIST_PCT'), 1)],
+      ['Prêmio méd.', _fmtMoney(g('PREMIO_ENTRADA'))], ['Prêmio atual', _fmtMoney(g('PREMIO_ATUAL'))], ['Break-even', _fmtMoney(g('BREAK_EVEN'))],
+      ['L/P aberto', pl], ['Ganho máx.', _fmtMoney(g('GANHO_MAX'))], ['Nocional', _fmtMoney(g('NOCIONAL'))],
+    ]);
+    items += "<div class='item' style='border-left-color:" + cor + "'>"
+      + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span>"
+      + "<span class='nivel' style='background:" + cor + "'>" + esc(nivel) + "</span></div>"
+      + "<div class='sub'>" + esc(g('SIDE')) + " " + esc(g('TIPO')) + " · " + esc(g('MONEYNESS'))
+      + " · " + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ") · " + esc(g('QTD')) + " contratos</div>"
+      + "<div class='chips'>" + chips + "</div>" + grid
+      + (g('ANALISE') ? "<div class='analise'>🔎 " + esc(g('ANALISE')) + "</div>" : '')
+      + (g('ACAO') ? "<div class='acao'>👉 " + esc(g('ACAO')) + "</div>" : '') + "</div>";
   });
-  return _card('🛡️ Posições em atenção', badge, body);
+  return _section('🛡️ Posições em atenção', badge, "<div class='cards'>" + items + "</div>");
 }
 
-function _cardRadar(rows) {
-  if (!rows.length) {
-    return _card('📡 Oportunidades', '', "<div class='empty'>Sem oportunidades no filtro agora.<br>O Radar reavalia a cada execução.</div>");
-  }
-  let body = '';
+function _travaBlock(g) {
+  if (g('TRAVA_VENDE_STRIKE') === '' || g('TRAVA_VENDE_STRIKE') == null) return '';
+  return "<div class='trava'><div class='travah'>🛡️ Trava de Alta com PUT <span class='hint'>(risco limitado)</span></div>"
+    + "<div class='leg'>🔴 <b>Vende</b> PUT " + _fmtMoney(g('TRAVA_VENDE_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_VENDE_PREMIO')) + "</div>"
+    + "<div class='leg'>🟢 <b>Compra</b> PUT " + _fmtMoney(g('TRAVA_COMPRA_STRIKE')) + " · prêmio " + _fmtMoney(g('TRAVA_COMPRA_PREMIO')) + "</div>"
+    + _grid([
+      ['Crédito líq.', _fmtMoney(g('TRAVA_CREDITO'))],
+      ['Risco máx.', _fmtMoney(g('TRAVA_RISCO_MAX'))],
+      ['Retorno/Risco', _fmtPct(_num(g('TRAVA_RETORNO_RISCO')) == null ? null : _num(g('TRAVA_RETORNO_RISCO')) * 100, 0)],
+    ]) + "</div>";
+}
+
+function _cardRadar() {
+  const { idx, rows } = _readPanel(ABA_PRAD);
+  if (!rows.length) return _section('📡 Oportunidades', '',
+    "<div class='empty'>Sem oportunidades no filtro agora.<br>O Radar reavalia a cada execução.</div>");
+  let items = '';
   rows.forEach(r => {
-    const dist = _toNum(r[5]);
+    const g = n => (idx[n] == null ? '' : r[idx[n]]);
+    const dist = _num(g('DIST_PCT'));
     const distTxt = dist == null ? '—' : (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + '%';
-    const chips = _chip('Strike', _fmtMoney(r[3]))
-      + _chip('Spot', _fmtMoney(r[4]))
+    const aprox = String(g('PREMIO_FONTE') || '').indexOf('estim') >= 0 ? '≈ ' : '';
+    const chips = _chip('Strike', _fmtMoney(g('STRIKE')))
+      + _chip('Spot', _fmtMoney(g('SPOT')))
       + _chip('Dist', distTxt)
-      + _chip('IV', _fmtNum(r[6], 0))
-      + _chip('DTE', _esc(r[7]) + 'd');
-    body += "<div class='item' style='border-left-color:#16a34a'>"
-      + "<div class='row1'><span class='tk'>" + _esc(r[1]) + "</span>"
-      + "<span class='op'>" + _esc(r[2]) + "</span></div>"
-      + "<div class='chips'>" + chips + "</div>"
-      + (r[8] ? "<div class='analise'>" + _esc(r[8]) + "</div>" : '')
-      + "</div>";
+      + _chip('IV', _fmtNum(g('IV_RANK'), 0))
+      + _chip('Taxa', _fmtPct(g('TAXA_RETORNO'), 1))
+      + _chip('PoE', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0))
+      + _chip('Prêmio', aprox + _fmtMoney(g('PREMIO')))
+      + (g('VOLUME_FIN') !== '' ? _chip('Vol', _fmtMoney(g('VOLUME_FIN'))) : '');
+    items += "<div class='item' style='border-left-color:#16a34a'>"
+      + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span></div>"
+      + "<div class='sub'>" + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ")</div>"
+      + "<div class='chips'>" + chips + "</div>" + _travaBlock(g)
+      + (g('ANALISE') ? "<div class='analise'>💡 " + esc(g('ANALISE')) + "</div>" : '') + "</div>";
   });
-  return _card('📡 Oportunidades', rows.length + (rows.length === 1 ? ' ideia' : ' ideias'), body);
+  return _section('📡 Oportunidades', rows.length + (rows.length === 1 ? ' ideia' : ' ideias'),
+    "<div class='cards'>" + items + "</div>");
 }
 
-function _cardLogs(rows) {
-  if (!rows.length) return '';
+function _cardLogs() {
+  const logs = _ultimas(ABA_LOGS, 40, 4).reverse();
+  if (!logs.length) return '';
   let body = "<div class='logs'>";
-  rows.forEach(l => {
-    body += "<div class='log'>"
-      + "<span class='dot' style='background:" + _corStatus(l[2]) + "'></span>"
+  logs.forEach(l => {
+    body += "<div class='log'><span class='dot' style='background:" + _corStatus(l[2]) + "'></span>"
       + "<span class='t'>" + _fmtDateTime(l[0]) + "</span>"
-      + "<span class='s'>" + _esc(l[1]) + "</span>"
-      + "<span class='msg'>" + _esc(l[3]) + "</span></div>";
+      + "<span class='sv'>" + esc(l[1]) + "</span>"
+      + "<span class='msg'>" + esc(l[3]) + "</span></div>";
   });
-  return _card('🧾 Logs recentes', rows.length + ' eventos', body + "</div>");
-}
-
-function _card(titulo, badge, body) {
-  return "<div class='card'><div class='head'><span>" + titulo + "</span>"
-    + (badge ? "<span class='badge'>" + badge + "</span>" : '')
-    + "</div>" + body + "</div>";
-}
-
-function _metric(label, value) {
-  return "<div class='metric'><div class='l'>" + _esc(label) + "</div><div class='v'>" + value + "</div></div>";
+  return _section('🧾 Logs recentes', logs.length + ' eventos', body + "</div>");
 }
 
 // ===========================================================================
@@ -263,117 +287,104 @@ function doGet() {
       .setTitle('Motor ResearchDeOpcoes')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   } catch (err) {
-    const safe = "<html><head><meta charset='utf-8'></head>"
-      + "<body style='font-family:Arial,sans-serif;padding:24px;color:#0f172a'>"
-      + "<h2>⚠️ Painel indisponível no momento</h2>"
-      + "<p>O painel encontrou um erro ao montar a página, mas o motor segue rodando.</p>"
+    const safe = "<html><head><meta charset='utf-8'></head><body style='font-family:Arial;padding:24px'>"
+      + "<h2>⚠️ Painel indisponível no momento</h2><p>O motor segue rodando; o painel falhou ao montar.</p>"
       + "<pre style='background:#f1f5f9;padding:12px;border-radius:8px;white-space:pre-wrap'>"
-      + _esc(err && err.message ? err.message : err) + "</pre>"
-      + "<p><a href='" + GITHUB_ACTIONS + "'>Ver execuções no GitHub »</a></p>"
-      + "</body></html>";
+      + esc(err && err.message ? err.message : err) + "</pre>"
+      + "<p><a href='" + GITHUB_ACTIONS + "'>Ver execuções no GitHub »</a></p></body></html>";
     return HtmlService.createHtmlOutput(safe).setTitle('Motor ResearchDeOpcoes');
   }
 }
 
 function _render() {
   const a = _avaliar(), hb = a.hb || {};
-  const esc = _todas(ABA_PESC, 11);
-  const rad = _todas(ABA_PRAD, 9);
-  const logs = _ultimas(ABA_LOGS, 30, 4).reverse();
-
   const hero = "<div class='hero' style='background:linear-gradient(135deg," + a.cor + "," + a.cor2 + ")'>"
-    + "<div class='emoji'>" + a.emoji + "</div>"
-    + "<h1>" + _esc(a.titulo) + "</h1>"
-    + "<div class='sub'>Última execução " + _idadeTxt(a.idade)
-    + " · " + _fmtDateFull(hb.updatedAt) + "</div>"
+    + "<div class='emoji'>" + a.emoji + "</div><h1>" + esc(a.titulo) + "</h1>"
+    + "<div class='subh'>Última execução " + _idadeTxt(a.idade) + " · " + _fmtDateFull(hb.updatedAt) + "</div>"
     + "<div class='hstats'>"
     + "<div class='hstat'><div class='l'>Mercado</div><div class='v'>" + _mercadoLabel(hb.market) + "</div></div>"
     + "<div class='hstat'><div class='l'>Escudo</div><div class='v'>" + _fmtNum(hb.escudo, 0) + "</div></div>"
     + "<div class='hstat'><div class='l'>Oportunidades</div><div class='v'>" + _fmtNum(hb.radar, 0) + "</div></div>"
     + "<div class='hstat'><div class='l'>Duração</div><div class='v'>" + _fmtNum(hb.dur, 1) + "s</div></div>"
     + "</div></div>";
-
-  const toolbar = "<div class='toolbar'>"
-    + "<button class='btn' onclick='location.reload()'>↻ Atualizar agora</button>"
+  const toolbar = "<div class='toolbar'><button class='btn' onclick='location.reload()'>↻ Atualizar agora</button>"
     + "<span class='muted'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</span></div>";
-
-  const resumo = _card('Resumo da última execução',
-    (hb.runUrl ? "<a href='" + _esc(hb.runUrl) + "'>GitHub »</a>" : ''),
-    "<div class='metrics'>"
-    + _metric('Horário', _fmtDateFull(hb.updatedAt))
-    + _metric('Status', "<span style='color:" + _corStatus(hb.status) + "'>" + _esc(hb.status || '—') + "</span>")
-    + _metric('Mercado', _mercadoLabel(hb.market))
-    + _metric('Alertas Escudo', _fmtNum(hb.escudo, 0))
-    + _metric('Oportunidades', _fmtNum(hb.radar, 0))
-    + _metric('Duração (s)', _fmtNum(hb.dur, 1))
-    + "</div>"
-    + (hb.notes ? "<div class='acao' style='padding:4px 16px 12px'>" + _esc(hb.notes) + "</div>" : ''));
-
-  const foot = "<div class='foot'>"
-    + "Pregão " + PREGAO_INI + "h–" + PREGAO_FIM + "h (seg–sex) · vigia avisa por e-mail se o motor parar"
+  const resumo = _section('Resumo da última execução', (hb.runUrl ? "<a href='" + esc(hb.runUrl) + "'>GitHub »</a>" : ''),
+    _grid([
+      ['Horário', _fmtDateFull(hb.updatedAt)],
+      ['Status', "<span style='color:" + _corStatus(hb.status) + "'>" + esc(hb.status || '—') + "</span>"],
+      ['Mercado', _mercadoLabel(hb.market)],
+      ['Alertas Escudo', _fmtNum(hb.escudo, 0)],
+      ['Oportunidades', _fmtNum(hb.radar, 0)],
+      ['Duração (s)', _fmtNum(hb.dur, 1)],
+    ]) + (hb.notes ? "<div class='acao' style='padding:2px 14px 10px'>" + esc(hb.notes) + "</div>" : ''));
+  const foot = "<div class='foot'>Pregão " + PREGAO_INI + "h–" + PREGAO_FIM + "h (seg–sex) · vigia avisa por e-mail se o motor parar"
     + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes</div>";
-
   const script = "<script>setTimeout(function(){location.reload();}," + (REFRESH_S * 1000) + ");</script>";
 
   return "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
-    + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    + "<style>" + _css() + "</style></head><body><div class='wrap'>"
-    + hero + toolbar + resumo
-    + _cardEscudo(esc) + _cardRadar(rad) + _cardLogs(logs)
-    + foot + "</div>" + script + "</body></html>";
+    + "<meta name='viewport' content='width=device-width, initial-scale=1'><style>" + _css() + "</style></head>"
+    + "<body><div class='wrap'>" + hero + toolbar + resumo
+    + _cardEscudo() + _cardRadar() + _cardLogs() + foot + "</div>" + script + "</body></html>";
 }
 
 function _css() {
   return ""
     + "*{box-sizing:border-box}"
-    + "body{margin:0;background:#f1f5f9;color:#0f172a;line-height:1.45;"
-    + "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}"
-    + ".wrap{max-width:880px;margin:0 auto;padding:16px}"
-    + ".hero{border-radius:18px;padding:22px 20px;color:#fff;box-shadow:0 10px 30px rgba(2,6,23,.18)}"
+    + "body{margin:0;background:#eef1f5;color:#0f172a;line-height:1.45;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}"
+    + ".wrap{max-width:1040px;margin:0 auto;padding:18px}"
+    + ".hero{border-radius:18px;padding:22px 22px;color:#fff;box-shadow:0 12px 34px rgba(2,6,23,.20)}"
     + ".hero .emoji{font-size:42px;line-height:1}"
-    + ".hero h1{margin:6px 0 2px;font-size:24px;font-weight:800;letter-spacing:.2px}"
-    + ".hero .sub{opacity:.92;font-size:13.5px}"
-    + ".hstats{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}"
-    + ".hstat{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:12px;padding:8px 12px;min-width:92px}"
+    + ".hero h1{margin:6px 0 2px;font-size:25px;font-weight:800;letter-spacing:.2px}"
+    + ".hero .subh{opacity:.92;font-size:13.5px}"
+    + ".hstats{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}"
+    + ".hstat{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:12px;padding:9px 14px;min-width:104px;flex:1 1 auto}"
     + ".hstat .l{font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.4px}"
-    + ".hstat .v{font-size:17px;font-weight:700;margin-top:2px}"
-    + ".toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 0;flex-wrap:wrap}"
+    + ".hstat .v{font-size:18px;font-weight:700;margin-top:2px}"
+    + ".toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 2px 2px;flex-wrap:wrap}"
     + ".muted{color:#64748b;font-size:13px}"
-    + ".btn{appearance:none;border:1px solid #e5e7eb;background:#fff;color:#0f172a;border-radius:10px;"
-    + "padding:9px 15px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(2,6,23,.06)}"
+    + ".btn{appearance:none;border:1px solid #d7dde6;background:#fff;color:#0f172a;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(2,6,23,.06)}"
     + ".btn:active{transform:translateY(1px)}"
-    + ".card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;margin:14px 0;overflow:hidden;box-shadow:0 1px 3px rgba(2,6,23,.05)}"
-    + ".card .head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;font-weight:700;border-bottom:1px solid #f1f5f9}"
-    + ".card .head .badge{font-size:12px;font-weight:700;color:#64748b}"
-    + ".metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:2px;padding:6px}"
-    + ".metric{padding:10px 12px}"
-    + ".metric .l{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px}"
-    + ".metric .v{font-size:16px;font-weight:700;margin-top:3px;word-break:break-word}"
-    + ".item{padding:12px 16px;border-top:1px solid #f1f5f9;border-left:4px solid transparent}"
+    + ".sec{margin:18px 0}"
+    + ".sechead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 10px;font-weight:800;font-size:17px}"
+    + ".sechead .badge{font-size:12.5px;font-weight:700;color:#64748b}"
+    + ".cards{display:grid;grid-template-columns:1fr;gap:14px}"
+    + ".item{background:#fff;border:1px solid #e5e7eb;border-left:5px solid #cbd5e1;border-radius:14px;padding:14px 16px;box-shadow:0 1px 3px rgba(2,6,23,.06)}"
     + ".item .row1{display:flex;align-items:center;flex-wrap:wrap;gap:8px}"
-    + ".tk{font-weight:800;font-size:15px}"
+    + ".tk{font-weight:800;font-size:16px}"
     + ".op{color:#64748b;font-size:13px}"
-    + ".nivel{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.3px}"
-    + ".chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}"
-    + ".chip{font-size:12px;background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;padding:3px 8px;color:#334155;white-space:nowrap}"
+    + ".sub{color:#64748b;font-size:12.5px;margin-top:3px}"
+    + ".nivel{margin-left:auto;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.3px}"
+    + ".chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}"
+    + ".chip{font-size:12px;background:#f1f5f9;border:1px solid #e6ebf2;border-radius:8px;padding:3px 9px;color:#334155;white-space:nowrap}"
     + ".chip b{color:#0f172a}"
-    + ".analise{margin-top:8px;color:#334155;font-size:13px}"
-    + ".acao{margin-top:6px;color:#64748b;font-size:12.5px}"
-    + ".empty{padding:26px 16px;text-align:center;color:#64748b}"
-    + ".logs{padding:2px 0}"
-    + ".log{display:flex;gap:10px;align-items:flex-start;padding:8px 14px;border-top:1px solid #f4f6f9;font-size:12.5px}"
+    + ".mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;margin-top:11px;background:#eef2f7;border:1px solid #eef2f7;border-radius:10px;overflow:hidden}"
+    + ".m{background:#fff;padding:8px 11px}"
+    + ".ml{font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px}"
+    + ".mv{font-size:14.5px;font-weight:700;margin-top:2px}"
+    + ".trava{margin-top:11px;background:#ecfdf5;border:1px solid #d1fae5;border-radius:10px;padding:10px 12px}"
+    + ".travah{font-weight:700;margin-bottom:4px}"
+    + ".travah .hint{color:#64748b;font-weight:400;font-size:12px}"
+    + ".leg{font-size:13px;margin:2px 0}"
+    + ".analise{margin-top:10px;color:#334155;font-size:13px;background:#f8fafc;border-radius:8px;padding:8px 10px}"
+    + ".acao{margin-top:7px;color:#475569;font-size:12.5px}"
+    + ".empty{padding:26px 16px;text-align:center;color:#64748b;background:#fff;border:1px solid #e5e7eb;border-radius:14px}"
+    + ".logs{background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden}"
+    + ".log{display:flex;gap:10px;align-items:flex-start;padding:8px 14px;border-top:1px solid #f1f5f9;font-size:12.5px}"
+    + ".log:first-child{border-top:none}"
     + ".log .dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:0 0 auto}"
-    + ".log .t{color:#94a3b8;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:78px}"
-    + ".log .s{font-weight:700;color:#64748b;min-width:84px}"
+    + ".log .t{color:#94a3b8;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:82px}"
+    + ".log .sv{font-weight:700;color:#64748b;min-width:92px}"
     + ".log .msg{color:#334155}"
-    + ".foot{color:#94a3b8;font-size:12px;text-align:center;margin:18px 4px}"
+    + ".foot{color:#94a3b8;font-size:12px;text-align:center;margin:20px 4px}"
     + "a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}"
-    + "@media (max-width:560px){.wrap{padding:12px}.hero{padding:18px 16px}.hero h1{font-size:21px}"
-    + ".metric .v{font-size:15px}.log{flex-wrap:wrap;gap:4px 10px}.log .s{min-width:0}.log .msg{flex-basis:100%}}";
+    + "@media (min-width:820px){.cards{grid-template-columns:1fr 1fr}}"
+    + "@media (max-width:560px){.wrap{padding:13px}.hero{padding:18px 16px}.hero h1{font-size:21px}"
+    + ".log{flex-wrap:wrap;gap:3px 10px}.log .sv{min-width:0}.log .msg{flex-basis:100%}}";
 }
 
 // ===========================================================================
-// Dead-man's switch (gatilho de tempo ~30 min)
+// Dead-man's switch
 // ===========================================================================
 function verificarHeartbeat() {
   const a = _avaliar();
