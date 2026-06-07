@@ -129,12 +129,35 @@ TAB_PAINEL_RADAR = _env("TAB_PAINEL_RADAR", "PAINEL_RADAR")
 # Aba CONFIG (CHAVE/VALOR) — botões do projeto, controláveis pelo celular.
 CONFIG_HEADER = ["CHAVE", "VALOR", "DESCRICAO"]
 DEFAULT_CONFIG = [
+    # --- E-mail ---
     ["ENVIAR_EMAIL", "TRUE", "Liga/desliga TODOS os e-mails (TRUE/FALSE)"],
     ["ENVIAR_EMAIL_ESCUDO", "TRUE", "E-mail de defesa de posicoes (TRUE/FALSE)"],
     ["ENVIAR_EMAIL_RADAR", "TRUE", "E-mail de oportunidades do Radar (TRUE/FALSE)"],
     ["ESCUDO_NIVEL_MINIMO_EMAIL", "ALERTA", "Nivel minimo p/ e-mail de Escudo (ALERTA ou CRITICO)"],
-    ["USAR_MONTECARLO", "TRUE", "Filtrar Radar por prob. de exercicio (Monte Carlo)"],
-    ["POE_MAXIMA", "25", "Prob. maxima de exercicio (%) para recomendar uma PUT (ex.: 25)"],
+    # --- Monte Carlo (probabilidade de exercicio) ---
+    ["USAR_MONTECARLO", "TRUE", "Filtrar Radar por prob. de exercicio (TRUE/FALSE)"],
+    ["POE_MAXIMA", "25", "Prob. maxima de exercicio (%) para recomendar uma PUT"],
+    ["MC_CENARIOS", "10000", "Numero de simulacoes do Monte Carlo"],
+    ["MC_DRIFT", "0", "Tendencia do GBM (0 = sem vies; ex.: 0.05 = juros)"],
+    # --- Radar (filtros de prospeccao) ---
+    ["RADAR_IV_RANK_MIN", "50", "IV Rank minimo (premio gordo)"],
+    ["RADAR_RATIO_MIN", "1.02", "Distancia minima spot/strike (1.02 = 2% OTM)"],
+    ["RADAR_DTE_MIN", "21", "DTE minimo (dias)"],
+    ["RADAR_DTE_MAX", "45", "DTE maximo (dias)"],
+    ["RADAR_TOP_N", "5", "Quantas oportunidades no e-mail"],
+    ["RADAR_EXIGIR_TENDENCIA_ALTA", "FALSE", "So recomenda se a acao estiver em alta M9>M21 (TRUE/FALSE)"],
+    # --- Escudo (gatilhos de defesa) ---
+    ["ESCUDO_RECOMPRA_OTM", "2.0", "Alerta quando custo de recompra >= Nx o premio (OTM)"],
+    ["ESCUDO_RECOMPRA_OTM_CRIT", "3.0", "Critico quando recompra >= Nx (OTM)"],
+    ["ESCUDO_RECOMPRA_ATM", "1.5", "Alerta quando recompra >= Nx (ATM/ITM)"],
+    ["ESCUDO_DELTA_ALERTA", "0.30", "Banda de |Delta| p/ alerta (zona OTM)"],
+    ["ESCUDO_DELTA_URGENTE", "0.35", "Banda de |Delta| p/ critico (zona OTM)"],
+    ["ESCUDO_DTE_CRITICO", "15", "DTE (dias) que torna ITM/ATM critico"],
+    ["ESCUDO_PERDA_MAX_PCT", "50", "Perda (% do MAX_LOSS) que vira critico"],
+    ["ESCUDO_GAMMA_MAX", "0.05", "Gamma que dispara pre-perigo"],
+    ["ESCUDO_HHI_MAX", "0.50", "Concentracao setorial maxima (HHI 0..1)"],
+    ["ESCUDO_IBOV_EXPOSICAO_MAX", "80", "Exposicao maxima ao IBOV (%)"],
+    ["ESCUDO_IBOV_CORREL_MIN", "0.50", "Correlacao minima p/ contar como exposto ao IBOV"],
 ]
 # Painéis sobrescritos a cada execução (alimentam o web app).
 PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "NIVEL", "MONEYNESS", "DTE",

@@ -117,14 +117,20 @@ def ensure_tab(tab_title: str, header: Sequence[str]) -> None:
 
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
 def ensure_config(tab_title: str, header: Sequence[str], default_rows: Sequence[Sequence]) -> None:
-    """Cria a aba (com cabeçalho + linhas padrão) se ela não existir."""
+    """Garante a aba CONFIG: cria com os padrões se faltar; se já existir, ANEXA
+    as chaves novas que ainda não estiverem lá (sem mexer no que o usuário editou)."""
     ss = _spreadsheet()
     try:
-        ss.worksheet(tab_title)
+        ws = ss.worksheet(tab_title)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=tab_title, rows=max(len(default_rows) + 5, 20), cols=max(len(header), 3))
+        ws = ss.add_worksheet(title=tab_title, rows=max(len(default_rows) + 5, 30), cols=max(len(header), 3))
         ws.update(values=[list(header)] + [list(map(_cell, r)) for r in default_rows],
                   range_name="A1", value_input_option="USER_ENTERED")
+        return
+    existentes = {str(r[0]).strip().upper() for r in ws.get_all_values()[1:] if r and str(r[0]).strip()}
+    faltando = [r for r in default_rows if str(r[0]).strip().upper() not in existentes]
+    if faltando:
+        ws.append_rows([list(map(_cell, r)) for r in faltando], value_input_option="USER_ENTERED")
 
 
 @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
