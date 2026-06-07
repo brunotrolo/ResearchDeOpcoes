@@ -1,15 +1,20 @@
 """Módulo 1 — ESCUDO (defesa de posições ativas).
 
-Lê a aba Painel_Ativas e avalia as pernas VENDIDAS (a perna de risco de
-Travas de Alta com Put / vendas de PUT e CALL a seco). Aplica a regra de
-negócio calibrada por moneyness (ITM/ATM/OTM), combinando 3 sinais:
+Lê a aba PAINEL_ATIVAS e avalia as pernas VENDIDAS (a perna de risco de
+Travas de Alta com Put / vendas de PUT e CALL a seco). Regra calibrada por
+moneyness (ITM/ATM/OTM), combinando sinais:
 
     1. Múltiplo de recompra:  LAST_PREMIUM / ENTRY_PRICE
-    2. |Delta| da perna vendida (lido direto da planilha)
-    3. Perda corrente vs. MAX_LOSS da estratégia  (+ DTE para risco de exercício)
+    2. |Delta| da perna vendida — early-warning de DRIFT, só na zona OTM
+       (em ATM/ITM o |Δ| já é alto por natureza; lá quem manda é DTE + perda).
+    3. Perda corrente vs. MAX_LOSS da estratégia.
+    4. DTE_CALENDAR (risco de exercício) e POE (prob. de exercício), lidos da aba.
 
-Saída: lista de alertas (dicts) com nível AVISO/ALERTA/CRITICO, motivo,
-descrição e ação sugerida. Quem decide enviar e-mail é o orquestrador.
+Taxonomia (alinhada ao motor existente do Bruno):
+    - OTM saudável -> sem alerta.   - ATM -> AVISO (vigiar, sem e-mail).
+    - ITM -> ALERTA.                - ITM/perda alta perto do vencimento -> CRITICO.
+
+Saída: lista de alertas (dicts). Quem decide enviar e-mail é o orquestrador.
 """
 from __future__ import annotations
 
@@ -37,7 +42,7 @@ def _acao(moneyness: str, nivel: str) -> str:
         if moneyness == "ATM":
             return "Monitorar de perto; preparar rolagem (gamma alto)"
         return "Acompanhar; recompra ao dobrar o prêmio"
-    return "Acompanhar"
+    return "Acompanhar (vigiar moneyness/DTE)"
 
 
 def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
@@ -48,7 +53,12 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     last = row.get("last_premium")
     pl_value = row.get("pl_value")
     max_loss = row.get("max_loss")
-    dte = parsing.days_to_expiry(row.get("expiry"), today)
+    poe = row.get("poe")
+    # DTE: prefere a coluna da planilha (DTE_CALENDAR); senão calcula do EXPIRY.
+    dte = row.get("dte_calendar")
+    if dte is None:
+        dte = parsing.days_to_expiry(row.get("expiry"), today)
+    dte = int(dte) if dte is not None else None
 
     buyback_mult = (last / entry) if (entry and last is not None and entry > 0) else None
     loss = -pl_value if (pl_value is not None and pl_value < 0) else 0.0
@@ -57,10 +67,8 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     nivel = "OK"
     motivos: list[str] = []
 
-    # --- Sinal 2: bandas de |Delta| — early-warning de DRIFT na zona OTM.
-    #     Em ATM/ITM o |Δ| é naturalmente alto (>0.5) e não acrescenta sinal:
-    #     essas zonas são regidas por moneyness + DTE + perda (abaixo).
-    if abs_delta is not None and moneyness not in {"ATM", "ITM"}:
+    # --- Sinal 2: bandas de |Delta| — só na zona OTM (drift rumo ao perigo) ---
+    if abs_delta is not None and moneyness == "OTM":
         if abs_delta >= cfg.delta_urgent:
             nivel = _escalate(nivel, "CRITICO")
             motivos.append(f"DELTA_URGENTE(|Δ|={abs_delta:.2f})")
@@ -77,7 +85,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
             elif buyback_mult >= cfg.buyback_mult_otm:
                 nivel = _escalate(nivel, "ALERTA")
                 motivos.append(f"RECOMPRA_{cfg.buyback_mult_otm:g}x")
-        elif moneyness == "ATM":
+        elif moneyness in {"ATM", "ITM"}:
             if buyback_mult >= cfg.buyback_mult_atm:
                 nivel = _escalate(nivel, "ALERTA")
                 motivos.append(f"RECOMPRA_{cfg.buyback_mult_atm:g}x")
@@ -90,18 +98,24 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
             nivel = _escalate(nivel, "CRITICO")
             motivos.append(f"DTE_CRITICO({dte}d)")
     elif moneyness == "ATM":
-        nivel = _escalate(nivel, "ALERTA")
+        nivel = _escalate(nivel, "AVISO")
         motivos.append("ATM")
         if abs_delta is not None and abs_delta >= cfg.delta_atm:
             motivos.append(f"DELTA_ATM(|Δ|={abs_delta:.2f})")
-        if dte is not None and dte <= cfg.dte_critical:
-            nivel = _escalate(nivel, "CRITICO")
-            motivos.append(f"DTE_CRITICO({dte}d)")
+        # ATM só sobe para ALERTA se estiver perto do vencimento E perdendo.
+        if dte is not None and dte <= cfg.dte_critical and (pl_value is not None and pl_value < 0):
+            nivel = _escalate(nivel, "ALERTA")
+            motivos.append(f"ATM_DTE({dte}d)_PERDA")
 
     # --- Sinal 3: perda corrente vs. MAX_LOSS (todas as zonas) ---
     if loss_ratio is not None and loss_ratio >= cfg.loss_vs_maxloss_pct:
         nivel = _escalate(nivel, "CRITICO")
         motivos.append(f"PERDA_{loss_ratio*100:.0f}%_DO_MAXLOSS")
+
+    # --- Heads-up de vencimento próximo (AVISO, sem e-mail) p/ pernas saudáveis ---
+    if nivel == "OK" and dte is not None and dte <= cfg.dte_critical:
+        nivel = "AVISO"
+        motivos.append(f"DTE_PROXIMO({dte}d)")
 
     if nivel == "OK":
         return None
@@ -117,6 +131,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         "strike": row.get("strike"),
         "spot": row.get("spot"),
         "delta": delta,
+        "poe": poe,
         "entry_price": entry,
         "last_premium": last,
         "buyback_mult": buyback_mult,
@@ -135,14 +150,14 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
         out[field] = frames.raw(df, "ativas", field)
     for field in ("side", "option_type", "moneyness", "status"):
         out[field] = frames.txt(df, "ativas", field)
-    for field in ("strike", "spot", "entry_price", "last_premium",
-                  "delta", "pl_value", "pl_pct", "max_loss"):
+    for field in ("strike", "spot", "entry_price", "last_premium", "delta", "poe",
+                  "pl_value", "pl_pct", "max_loss", "dte_calendar", "control_flag"):
         out[field] = frames.num(df, "ativas", field)
     return out
 
 
 def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None = None) -> list[dict]:
-    """Analisa o Painel_Ativas e devolve a lista de alertas (todos os níveis)."""
+    """Analisa a PAINEL_ATIVAS e devolve a lista de alertas (todos os níveis)."""
     cfg = cfg or config.ESCUDO
     if df_ativas is None or df_ativas.empty:
         return []
@@ -151,6 +166,8 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
     norm = norm[norm["status"] == "ATIVO"]
     if cfg.only_short_legs:
         norm = norm[norm["side"] == "VENDA"]
+    # CONTROL_FLAG == 0 -> linha desativada manualmente na planilha.
+    norm = norm[~(norm["control_flag"] == 0)]
 
     alerts: list[dict] = []
     for _, row in norm.iterrows():
@@ -159,7 +176,6 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
         if result is not None:
             alerts.append(result)
 
-    # Ordena por severidade desc, depois por perda
     alerts.sort(key=lambda a: (_NIVEL_RANK[a["nivel"]], -(a.get("pl_value") or 0)), reverse=True)
     return alerts
 

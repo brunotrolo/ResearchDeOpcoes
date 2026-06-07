@@ -15,12 +15,18 @@ def actual_col(table: str, field: str) -> str | None:
     return config.COLUMN_MAP.get(table, {}).get(field)
 
 
+def _decimal_sep(table: str) -> str:
+    spec = config.TABS.get(table)
+    return spec.decimal_sep if spec else "."
+
+
 def num(df: pd.DataFrame, table: str, field: str) -> pd.Series:
-    """Série numérica (float) parseada; ausências/vazios viram NaN."""
+    """Série numérica (float) parseada com o locale decimal da aba; NaN se vazio."""
     col = actual_col(table, field)
     if col is None or col not in df.columns:
         return pd.Series([float("nan")] * len(df), index=df.index, dtype="float64")
-    return pd.to_numeric(df[col].map(parsing.to_float), errors="coerce")
+    sep = _decimal_sep(table)
+    return pd.to_numeric(df[col].map(lambda v: parsing.to_float(v, sep)), errors="coerce")
 
 
 def txt(df: pd.DataFrame, table: str, field: str) -> pd.Series:

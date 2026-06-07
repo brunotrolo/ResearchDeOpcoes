@@ -42,10 +42,20 @@ def _underlying_volume(df_volumes: pd.DataFrame) -> dict[str, float]:
     return {t: v for t, v in zip(tickers, totals) if t}
 
 
-def _whitelist(df_dados: pd.DataFrame) -> set[str]:
+def _whitelist(df_dados: pd.DataFrame, require_has_options: bool = True) -> set[str]:
+    """Universo monitorado da aba DADOS_ATIVOS (opcionalmente só com opções)."""
     if df_dados is None or df_dados.empty:
         return set()
-    return set(t for t in frames.raw(df_dados, "dados_ativos", "ticker") if t)
+    tickers = frames.raw(df_dados, "dados_ativos", "ticker")
+    has_opts = frames.txt(df_dados, "dados_ativos", "has_options")  # "TRUE"/"FALSE"
+    allowed: set[str] = set()
+    for tkr, ho in zip(tickers, has_opts):
+        if not tkr:
+            continue
+        if require_has_options and ho not in {"TRUE", "1", "SIM", "VERDADEIRO", ""}:
+            continue
+        allowed.add(tkr)
+    return allowed
 
 
 def scan(
@@ -82,9 +92,9 @@ def scan(
             lambda t: _underlying_volume(df_volumes).get(t) if df_volumes is not None else None
         )
 
-    # Universo monitorado (opcional)
+    # Universo monitorado (DADOS_ATIVOS) — só ativos com opções, por padrão
     if cfg.use_dados_ativos_whitelist:
-        allowed = _whitelist(df_dados_ativos)
+        allowed = _whitelist(df_dados_ativos, cfg.require_has_options)
         if allowed:
             df = df[df["ticker"].isin(allowed)]
 

@@ -101,15 +101,17 @@ class Runtime:
 class TabSpec:
     title: str
     header_row: int = 1
+    decimal_sep: str = "."   # "." = US/ISO ; "," = pt-BR (vírgula decimal)
 
 
 TABS: dict[str, TabSpec] = {
-    "ativas":       TabSpec(_env("TAB_ATIVAS", "Painel_Ativas"),                _env_int("TAB_ATIVAS_HEADER_ROW", 1)),
-    "lucros":       TabSpec(_env("TAB_LUCROS", "SELECAO_OPCOES_MAIORES_LUCROS"), _env_int("TAB_LUCROS_HEADER_ROW", 1)),
-    "volumes":      TabSpec(_env("TAB_VOLUMES", "SELECAO_MAIORES_VOLUMES"),     _env_int("TAB_VOLUMES_HEADER_ROW", 1)),
-    "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1)),
-    "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1)),
-    "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1)),
+    # PAINEL_ATIVAS e DADOS_ATIVOS estão em pt-BR (vírgula decimal, ponto de milhar).
+    "ativas":       TabSpec(_env("TAB_ATIVAS", "Painel_Ativas"),                _env_int("TAB_ATIVAS_HEADER_ROW", 1),       _env("TAB_ATIVAS_DECIMAL", ",")),
+    "lucros":       TabSpec(_env("TAB_LUCROS", "SELECAO_OPCOES_MAIORES_LUCROS"), _env_int("TAB_LUCROS_HEADER_ROW", 1),       _env("TAB_LUCROS_DECIMAL", ".")),
+    "volumes":      TabSpec(_env("TAB_VOLUMES", "SELECAO_MAIORES_VOLUMES"),     _env_int("TAB_VOLUMES_HEADER_ROW", 1),       _env("TAB_VOLUMES_DECIMAL", ".")),
+    "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1),         _env("TAB_M9M21_DECIMAL", ".")),
+    "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ".")),
+    "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
 }
 
 # Abas de escrita (logs + histórico). Criadas automaticamente se não existirem.
@@ -128,23 +130,31 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
     "ativas": {
         "id_trade": "ID_TRADE",
         "id_strategy": "ID_STRATEGY",
-        "status": "STATUS",
+        "status": "STATUS",                  # ATIVO / EXERCIDA / ENCERRADO
         "ticker": "TICKER",
         "option_ticker": "OPTION_TICKER",
-        "side": "SIDE",                # COMPRA / VENDA
-        "option_type": "OPTION_TYPE",  # CALL / PUT
+        "side": "SIDE",                      # COMPRA / VENDA
+        "option_type": "OPTION_TYPE",        # CALL / PUT
         "quantity": "QUANTITY",
         "strike": "STRIKE",
         "spot": "SPOT",
-        "moneyness": "MONEYNESS",      # ITM / ATM / OTM
+        "moneyness": "MONEYNESS",            # ITM / ATM / OTM
+        "moneyness_ratio": "MONEYNESS_RATIO",  # ~ spot/strike
         "entry_price": "ENTRY_PRICE",
         "last_premium": "LAST_PREMIUM",
-        "delta": "DELTA",              # <-- Bruno confirmou que existe na espelho
-        "expiry": "EXPIRY",            # dd/mm/aaaa
+        "delta": "DELTA",                    # por perna (confirmado)
+        "poe": "POE",                        # probabilidade de exercício (0..1)
+        "expiry": "EXPIRY",                  # dd/mm/aaaa
+        "dte_calendar": "DTE_CALENDAR",      # dias corridos até o vencimento
+        "iv": "IV",
+        "iv_rank": "IV_RANK",
         "pl_value": "PL_VALUE",
         "pl_pct": "PL_PCT",
         "max_gain": "MAX_GAIN",
         "max_loss": "MAX_LOSS",
+        "notional": "NOTIONAL",
+        "direction_flag": "DIRECTION_FLAG",  # 1 = perna de crédito (risco)
+        "control_flag": "CONTROL_FLAG",      # 0 = ignorar linha na análise
     },
     "lucros": {
         "option_ticker": "OPTION_TICKER",
@@ -176,6 +186,20 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
     },
     "dados_ativos": {
         "ticker": "TICKER",
+        "company": "COMPANY_NAME",
+        "sector": "SECTOR",
+        "spot": "SPOT",
+        "iv": "IV",
+        "iv_rank": "IV_RANK",
+        "bid": "BID",
+        "ask": "ASK",
+        "volume": "VOLUME",
+        "financial_volume": "FINANCIAL_VOLUME",
+        "has_options": "HAS_OPTIONS",        # TRUE / FALSE
+        "beta_ibov": "BETA_IBOV",
+        "correl_ibov": "CORREL_IBOV",
+        "m9m21_trend": "M9_M21_TREND",       # 1 = alta, -1 = baixa
+        "oplab_score": "OPLAB_SCORE",
     },
 }
 
@@ -214,8 +238,9 @@ class RadarCfg:
     min_underlying_volume: float = _env_float("RADAR_MIN_UNDERLYING_VOLUME", 0.0)
     # Exigir tendência de alta da ação-mãe (M9M21_TREND == 1)?
     require_trend_up: bool = _env_bool("RADAR_REQUIRE_TREND_UP", False)
-    # Restringir ao universo monitorado da aba DADOS_ATIVOS?
-    use_dados_ativos_whitelist: bool = _env_bool("RADAR_USE_WHITELIST", False)
+    # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?
+    use_dados_ativos_whitelist: bool = _env_bool("RADAR_USE_WHITELIST", True)
+    require_has_options: bool = _env_bool("RADAR_REQUIRE_HAS_OPTIONS", True)
     top_n: int = _env_int("RADAR_TOP_N", 5)
 
 

@@ -31,7 +31,7 @@ from app.logbook import Logbook
 
 _ESCUDO_HIST_HEADER = [
     "UPDATED_AT", "OPTION_TICKER", "TICKER", "ID_STRATEGY", "NIVEL", "MONEYNESS",
-    "DTE", "DELTA", "BUYBACK_MULT", "PL_VALUE", "MOTIVO", "ACAO_SUGERIDA",
+    "DTE", "DELTA", "POE", "BUYBACK_MULT", "PL_VALUE", "MOTIVO", "ACAO_SUGERIDA",
 ]
 _RADAR_HIST_HEADER = [
     "UPDATED_AT", "OPTION_TICKER", "TICKER", "STRIKE", "SPOT", "SPOT_STRIKE_RATIO",
@@ -59,6 +59,7 @@ def _run_escudo(log: Logbook, tz) -> None:
         rows = [[ts, a["option_ticker"], a["ticker"], a["id_strategy"], a["nivel"],
                  a["moneyness"], a["dte"],
                  f"{a['delta']:.4f}" if a.get("delta") is not None else "",
+                 f"{a['poe']:.2f}" if a.get("poe") is not None else "",
                  f"{a['buyback_mult']:.2f}" if a.get("buyback_mult") is not None else "",
                  a.get("pl_value"), a["motivo"], a["acao_sugerida"]] for a in alerts]
         sheets_client.append_rows(config.TAB_HIST_ESCUDO, rows, header=_ESCUDO_HIST_HEADER)
