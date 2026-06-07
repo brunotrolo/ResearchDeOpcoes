@@ -73,6 +73,8 @@ _ESCUDO_MAP = {
     "ESCUDO_DTE_CRITICO": ("dte_critical", _int, 0, 365),
     "ESCUDO_PERDA_MAX_PCT": ("loss_vs_maxloss_pct", _pct, 0.0, 5.0),
     "ESCUDO_GAMMA_MAX": ("gamma_max", _num, 0.0, 5.0),
+    "ESCUDO_TOQUE_AVISO": ("toque_aviso", _pct, 0.0, 1.0),
+    "ESCUDO_TOQUE_ALERTA": ("toque_alerta", _pct, 0.0, 1.0),
     "ESCUDO_HHI_MAX": ("hhi_max", _num, 0.0, 1.0),
     "ESCUDO_IBOV_EXPOSICAO_MAX": ("ibov_exposure_max", _pct, 0.0, 1.0),
     "ESCUDO_IBOV_CORREL_MIN": ("ibov_correl_threshold", _num, 0.0, 1.0),
@@ -153,14 +155,6 @@ def _mc_setup(cfg_sheet: dict):
     except (TypeError, ValueError):
         drift = config.MC_DRIFT
     return montecarlo.MonteCarloSimulator(n, config.MC_SEED, drift)
-
-
-def _mc_enrich(items: list[dict], vol_map: dict, sim) -> None:
-    """Adiciona poe_mc_iv/real/gate a cada item (usa spot/strike/dte + vol do ativo)."""
-    for it in items:
-        vm = vol_map.get(str(it.get("ticker", "")).strip().upper(), {})
-        it.update(montecarlo.poe_resumo(sim, it.get("spot"), it.get("strike"), it.get("dte"),
-                                        vm.get("iv"), vm.get("real"), tipo=it.get("option_type", "PUT")))
 
 
 def _read_config(log: Logbook) -> dict:
@@ -244,7 +238,8 @@ def _esc_panel_row(ts: str, a: dict) -> list:
             a.get("nivel"), a.get("moneyness"), a.get("dte"), a.get("expiry"), a.get("quantity"),
             a.get("spot"), a.get("strike"), a.get("dist_pct"), a.get("entry_price"),
             a.get("last_premium"), a.get("buyback_mult"), a.get("break_even"), a.get("delta"),
-            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"), a.get("pl_value"), a.get("pl_pct"),
+            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"), a.get("toque_gate"),
+            a.get("pl_value"), a.get("pl_pct"),
             a.get("max_gain"), a.get("max_profit_pct"), a.get("notional"),
             a.get("analise"), a.get("acao_sugerida")]
 
@@ -254,7 +249,8 @@ def _rad_panel_row(ts: str, o: dict) -> list:
     fonte = "estimado (≈)" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
     return [ts, o.get("ticker"), o.get("option_ticker"), o.get("expiry_fmt"), o.get("dte"),
             o.get("strike"), o.get("spot"), o.get("dist_pct"), o.get("premio"), fonte,
-            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"), o.get("volume_fin"),
+            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"), o.get("toque_gate"),
+            o.get("volume_fin"),
             tr.get("sell_strike"), tr.get("sell_premio"), tr.get("buy_strike"), tr.get("buy_premio"),
             tr.get("credito"), tr.get("risco_max"), tr.get("retorno_risco"),
             o.get("motivo"), o.get("analise")]
@@ -269,9 +265,15 @@ def _log_escudo_alerta(log: Logbook, a: dict) -> None:
     cab = (f"{a.get('ticker')} {a.get('option_ticker')} [{a['nivel']}] — {a.get('moneyness')}, "
            f"DTE {_g(a.get('dte'))}, Δ {_g(a.get('delta'))}, γ {_g(a.get('gamma'))}, "
            f"recompra {_g(a.get('buyback_mult'))}x, PoE {_pctg(a.get('poe'))}, "
-           f"PoE-MC {_pctg(a.get('poe_mc_gate'))}, P/L R$ {_g(a.get('pl_value'))} ({_g(a.get('pl_pct'))}%)")
-    log.info("ESCUDO", f"Posição {cab}",
-             {"gatilhos": a.get("motivo"), "acao": a.get("acao_sugerida"), "analise": a.get("analise")})
+           f"PoE-MC {_pctg(a.get('poe_mc_gate'))}, Toque {_pctg(a.get('toque_gate'))}, "
+           f"P/L R$ {_g(a.get('pl_value'))} ({_g(a.get('pl_pct'))}%)")
+    ctx = {"gatilhos": a.get("motivo"), "acao": a.get("acao_sugerida"), "analise": a.get("analise")}
+    if a.get("toque_tendencia") is not None:
+        ctx["toque_se_tendencia_continuar"] = _pctg(a.get("toque_tendencia"))
+    if a.get("cenarios"):
+        c = a["cenarios"]
+        ctx["cenarios_preco"] = f"P5 {_g(c.get('p05'))} · P50 {_g(c.get('p50'))} · P95 {_g(c.get('p95'))}"
+    log.info("ESCUDO", f"Posição {cab}", ctx)
 
 
 def _log_radar_funil(log: Logbook, f: dict) -> None:
@@ -325,7 +327,8 @@ def _log_radar_opp(log: Logbook, o: dict) -> None:
     poe_src = o.get("poe_fonte") or "Monte Carlo"
     cab = (f"{o.get('ticker')} {o.get('option_ticker')} — strike R$ {_g(o.get('strike'))}, "
            f"prêmio R$ {_g(o.get('premio'))} ({src}), IVR {_g(o.get('iv_rank'))}, "
-           f"PoE {_pctg(o.get('poe_mc_gate'))} ({poe_src}), DTE {_g(o.get('dte'))}, vol R$ {_g(o.get('volume_fin'))}")
+           f"PoE {_pctg(o.get('poe_mc_gate'))} ({poe_src}), Toque {_pctg(o.get('toque_gate'))}, "
+           f"DTE {_g(o.get('dte'))}, vol R$ {_g(o.get('volume_fin'))}")
     tr = o.get("trava")
     if tr:
         det = (f"TRAVA DE ALTA: vende PUT {_g(tr['sell_strike'])} @ R$ {_g(tr['sell_premio'])} + "
@@ -353,17 +356,24 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
 
     today = datetime.now(tz).date()
     escudo_cfg = _escudo_cfg(cfg_sheet)
+    # Monte Carlo PREDITIVO: simulador + vol e tendência por ativo (DADOS_ATIVOS).
+    # Alimenta a prob. de TOQUE (OTM virar ATM/ITM antes de vencer) como gatilho.
+    sim = _mc_setup(cfg_sheet)
+    vmap, trend_map = None, None
+    if sim is not None:
+        try:
+            df_dados_esc = sheets_client.read_tab("dados_ativos")
+            vmap = radar.build_vol_map(df_dados_esc)
+            trend_map = radar.build_trend_map(df_dados_esc)
+        except Exception as exc:
+            log.warn("ESCUDO", "Monte Carlo sem DADOS_ATIVOS (segue sem PoE/toque)", {"erro": str(exc)})
+            sim = None
+
     port_audit: dict = {}
     port_alerts = escudo.analyze_portfolio(df, df_correl, cfg=escudo_cfg, audit=port_audit)
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
-    alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg)
-
-    sim = _mc_setup(cfg_sheet)
-    if sim is not None:
-        try:
-            _mc_enrich(alerts, radar.build_vol_map(sheets_client.read_tab("dados_ativos")), sim)
-        except Exception as exc:
-            log.warn("ESCUDO", "Monte Carlo não aplicado (DADOS_ATIVOS)", {"erro": str(exc)})
+    alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg,
+                                          sim=sim, vol_map=vmap, trend_map=trend_map)
 
     por_nivel: dict = {}
     for a in alerts:

@@ -149,7 +149,7 @@ DEFAULT_CONFIG = [
     ["RADAR_TOP_N", "5", "Quantas oportunidades no e-mail"],
     ["RADAR_MAX_POR_ATIVO", "2", "Maximo de oportunidades por ativo-mae (diversificacao)"],
     ["RADAR_EXIGIR_TENDENCIA_ALTA", "FALSE", "So recomenda se a acao estiver em alta M9>M21 (TRUE/FALSE)"],
-    ["RADAR_EVITAR_TENDENCIA_BAIXA", "FALSE", "Descarta venda de PUT em acao em baixa M9<M21 (TRUE/FALSE)"],
+    ["RADAR_EVITAR_TENDENCIA_BAIXA", "TRUE", "Descarta venda de PUT/Trava em acao em baixa M9<M21 (estrategia e altista) (TRUE/FALSE)"],
     ["RADAR_USAR_TRAVA", "TRUE", "Montar Trava de Alta com PUT (risco limitado) em vez de PUT a seco (TRUE/FALSE)"],
     ["RADAR_TRAVA_LARGURA_PCT", "5", "Largura da trava: PUT comprada ~N% abaixo do strike vendido (%)"],
     # --- Escudo (gatilhos de defesa) ---
@@ -161,6 +161,8 @@ DEFAULT_CONFIG = [
     ["ESCUDO_DTE_CRITICO", "15", "DTE (dias) que torna ITM/ATM critico"],
     ["ESCUDO_PERDA_MAX_PCT", "50", "Perda (% do MAX_LOSS) que vira critico"],
     ["ESCUDO_GAMMA_MAX", "0.05", "Gamma que dispara pre-perigo"],
+    ["ESCUDO_TOQUE_AVISO", "50", "Prob. de TOQUE (virar ITM antes de vencer) que vira AVISO numa perna OTM (%)"],
+    ["ESCUDO_TOQUE_ALERTA", "70", "Prob. de TOQUE que vira ALERTA numa perna OTM (%)"],
     ["ESCUDO_HHI_MAX", "0.50", "Concentracao setorial maxima (HHI 0..1)"],
     ["ESCUDO_IBOV_EXPOSICAO_MAX", "80", "Exposicao maxima ao IBOV (%)"],
     ["ESCUDO_IBOV_CORREL_MIN", "0.50", "Correlacao minima p/ contar como exposto ao IBOV"],
@@ -170,11 +172,11 @@ DEFAULT_CONFIG = [
 PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "SIDE", "TIPO", "NIVEL", "MONEYNESS",
                         "DTE", "EXPIRY", "QTD", "SPOT", "STRIKE", "DIST_PCT",
                         "PREMIO_ENTRADA", "PREMIO_ATUAL", "RECOMPRA_X", "BREAK_EVEN",
-                        "DELTA", "GAMMA", "POE", "POE_MC", "PL_VALUE", "PL_PCT",
+                        "DELTA", "GAMMA", "POE", "POE_MC", "TOQUE", "PL_VALUE", "PL_PCT",
                         "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO"]
 PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STRIKE", "SPOT",
                        "DIST_PCT", "PREMIO", "PREMIO_FONTE", "IV_RANK", "TAXA_RETORNO", "POE_MC",
-                       "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
+                       "TOQUE", "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
                        "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
                        "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE"]
 
@@ -332,6 +334,10 @@ class EscudoCfg:
     loss_vs_maxloss_pct: float = _env_float("ESCUDO_LOSS_VS_MAXLOSS_PCT", 0.50)
     # Gamma alto = pré-perigo (aceleração do delta na perna vendida)
     gamma_max: float = _env_float("ESCUDO_GAMMA_MAX", 0.05)
+    # Gatilho PREDITIVO (Monte Carlo): probabilidade de a perna OTM TOCAR o strike
+    # (virar ATM/ITM) antes do vencimento. Avisa ANTES de dar ruim.
+    toque_aviso: float = _env_float("ESCUDO_TOQUE_AVISO", 0.50)
+    toque_alerta: float = _env_float("ESCUDO_TOQUE_ALERTA", 0.70)
     # Só analisa a perna de risco (vendida) por padrão
     only_short_legs: bool = _env_bool("ESCUDO_ONLY_SHORT_LEGS", True)
     # --- Risco de PORTFÓLIO (visão agregada) ---
@@ -357,8 +363,9 @@ class RadarCfg:
     # Exigir tendência de alta da ação-mãe (M9M21_TREND == 1)?
     require_trend_up: bool = _env_bool("RADAR_REQUIRE_TREND_UP", False)
     # Descartar oportunidades em ação com tendência de BAIXA (M9M21_TREND == -1).
-    # Mais brando que require_trend_up: aceita neutro (0) e alta (1), só corta a baixa.
-    evitar_tendencia_baixa: bool = _env_bool("RADAR_EVITAR_TENDENCIA_BAIXA", False)
+    # Padrão TRUE: venda de PUT / Trava de Alta são estratégias ALTISTAS — não faz
+    # sentido vendê-las num ativo caindo. Aceita neutro (0) e alta (1); só corta a baixa.
+    evitar_tendencia_baixa: bool = _env_bool("RADAR_EVITAR_TENDENCIA_BAIXA", True)
     # Diversificação: máximo de oportunidades por ativo-mãe no Top-N (0 = sem limite).
     max_por_ativo: int = _env_int("RADAR_MAX_POR_ATIVO", 2)
     # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?

@@ -45,6 +45,17 @@ def build_vol_map(df_dados: pd.DataFrame | None) -> dict[str, dict]:
     return out
 
 
+def build_trend_map(df_dados: "pd.DataFrame | None") -> dict[str, int]:
+    """{ticker: M9M21_TREND} (1 alta, -1 baixa) de DADOS_ATIVOS — usado pelo Escudo
+    para o cenário de continuação da tendência no Monte Carlo."""
+    if df_dados is None or df_dados.empty:
+        return {}
+    tickers = [str(t).strip().upper() for t in frames.raw(df_dados, "dados_ativos", "ticker")]
+    trend = _clean_list(frames.num(df_dados, "dados_ativos", "m9m21_trend"))
+    return {t: int(trend[i]) for i, t in enumerate(tickers)
+            if t and trend[i] is not None and trend[i] in (1, -1)}
+
+
 def _fmt_expiry(raw) -> str:
     """A aba de lucros/scanner traz EXPIRY como número serial do Sheets — converte
     p/ data. Detecta o separador automaticamente (a planilha pode vir em pt-BR ou
@@ -535,6 +546,12 @@ def scan_scanner(
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["premio_estimado"] = False  # scanner = CLOSE real, nunca estimado
+        # Prob. de TOQUE: chance de a PUT vendida virar ATM/ITM antes de vencer.
+        if mc is not None and vol_map:
+            vm = vol_map.get(str(rec.get("ticker", "")).strip().upper(), {})
+            rec["toque_gate"] = montecarlo.toque_resumo(
+                mc, spot, strike, rec.get("dte"), vm.get("iv"), vm.get("real"),
+                tipo="PUT").get("toque_gate")
         # Aviso direcional: vender PUT em ação caindo é apostar contra a maré.
         if rec.get("m9m21_trend") == -1:
             rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"

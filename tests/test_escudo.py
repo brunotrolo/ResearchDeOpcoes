@@ -6,7 +6,7 @@ from datetime import date
 
 import pandas as pd
 
-from app import escudo
+from app import escudo, montecarlo
 
 HOJE = date(2026, 6, 7)
 
@@ -40,6 +40,36 @@ def test_itm_longo_prazo_e_alerta_com_parser_ptbr():
     assert a["nivel"] == "ALERTA"
     assert a["delta"] == -0.72       # "-0,72" pt-BR
     assert a["strike"] == 31.91      # "R$ 31,91" pt-BR
+
+
+def test_otm_saudavel_com_toque_alto_vira_alerta_preditivo():
+    """Escudo PREDITIVO: uma perna OTM 'saudável' (sem delta/recompra/perda) mas com
+    alta probabilidade de TOCAR o strike antes de vencer é surfada via Monte Carlo —
+    o que evita que um OTM vire ATM/ITM sem aviso."""
+    sim = montecarlo.MonteCarloSimulator(seed=1)
+    vol_map = {"TICK": {"iv": 0.50, "real": 0.45}}
+    df = _df([_ativa(OPTION_TICKER="TICKX95", MONEYNESS="OTM", STRIKE="R$ 95,00", SPOT="R$ 100,00",
+                     ENTRY_PRICE="R$ 2,00", LAST_PREMIUM="R$ 1,90", DELTA="-0,20",
+                     PL_VALUE="R$ 10,00", MAX_LOSS="R$ 9.500,00", DTE_CALENDAR="40")])
+    # Sem Monte Carlo: posição saudável -> nenhum alerta.
+    assert escudo.analyze(df, HOJE) == []
+    # Com Monte Carlo: alta prob. de toque -> ALERTA preditivo, antes de dar ruim.
+    a = escudo.analyze(df, HOJE, sim=sim, vol_map=vol_map)[0]
+    assert a["nivel"] in {"AVISO", "ALERTA"}
+    assert a["toque_gate"] is not None and a["toque_gate"] > 0.5
+    assert "TOQUE" in a["motivo"]
+
+
+def test_toque_estresse_usa_tendencia_de_baixa():
+    """Com trend_map de baixa, o cenário de continuação eleva o toque (drift adverso)."""
+    sim = montecarlo.MonteCarloSimulator(seed=1)
+    vol_map = {"TICK": {"iv": 0.40, "real": 0.35}}
+    df = _df([_ativa(OPTION_TICKER="TICKX95", MONEYNESS="OTM", STRIKE="R$ 95,00", SPOT="R$ 100,00",
+                     ENTRY_PRICE="R$ 2,00", LAST_PREMIUM="R$ 1,90", DELTA="-0,20",
+                     PL_VALUE="R$ 10,00", MAX_LOSS="R$ 9.500,00", DTE_CALENDAR="40")])
+    a = escudo.analyze(df, HOJE, sim=sim, vol_map=vol_map, trend_map={"TICK": -1})[0]
+    assert a.get("toque_tendencia") is not None
+    assert a["toque_tendencia"] >= a["toque_gate"]   # baixa continuar -> pior ou igual
 
 
 def test_atm_benigno_e_aviso():

@@ -7,7 +7,7 @@ from app import config, radar
 
 def _opt(**kw) -> dict:
     base = dict(CATEGORY="PUT", EXPIRY="46.220,00", DTE_CALENDAR="40", IV_CURRENT="29",
-                VOLUME_FIN="500.000,00", M9M21_TREND="-1,00", SECTOR="", COMPANY_NAME="")
+                VOLUME_FIN="500.000,00", M9M21_TREND="1,00", SECTOR="", COMPANY_NAME="")
     base.update(kw)
     return base
 
@@ -300,13 +300,16 @@ def test_scan_scanner_teto_poe_sem_mc_rotula_oplab():
     assert opps[0]["poe_fonte"] == "OpLab"                     # rótulo correto (não "Monte Carlo")
 
 
-def test_scan_scanner_tendencia_baixa_avisa_e_filtra():
-    """Ação em baixa (M9<M21): por padrão entra COM aviso; com a flag, é descartada."""
+def test_scan_scanner_tendencia_baixa_descarta_por_padrao():
+    """Venda de PUT é ALTISTA: por padrão a baixa (M9<M21) é DESCARTADA; com a flag
+    desligada, entra só com o aviso direcional."""
     scanner = pd.DataFrame([
         _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00"),
     ])
     dados = pd.DataFrame([dict(TICKER="VALE3", HAS_OPTIONS="TRUE", IV_RANK="70", M9_M21_TREND="-1")])
-    o = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg())[0]
-    assert "BAIXA" in (o.get("alerta_tendencia") or "")        # aviso direcional presente
-    cfg_evita = config.RadarCfg(evitar_tendencia_baixa=True)
-    assert radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg_evita) == []
+    # Padrão (evitar_tendencia_baixa=True) -> descartada.
+    assert radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg()) == []
+    # Desligando o filtro -> entra COM o aviso direcional.
+    cfg_off = config.RadarCfg(evitar_tendencia_baixa=False)
+    o = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg_off)[0]
+    assert "BAIXA" in (o.get("alerta_tendencia") or "")

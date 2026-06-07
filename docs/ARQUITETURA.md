@@ -72,12 +72,37 @@ alto (≥ `ESCUDO_GAMMA_MAX`) adiciona um AVISO de "pré-perigo" (aceleração).
 Números em `.env` (`ESCUDO_*`). E-mail só em `ALERTA`/`CRÍTICO`; `AVISO` fica em
 LOGS/histórico. Dedupe: 1 alerta/opção/dia, re-dispara se escalar de nível.
 
+### Gatilho PREDITIVO — probabilidade de TOQUE (Monte Carlo)
+Os sinais acima são reativos (disparam quando a posição **já** está ITM/perto).
+O Escudo também é **preditivo**: para cada perna **OTM**, calcula a **probabilidade
+de TOQUE** (a opção virar ATM/ITM **antes** do vencimento — primeira passagem, ver
+seção Monte Carlo). `toque ≥ ESCUDO_TOQUE_AVISO` (padrão 50%) → AVISO;
+`≥ ESCUDO_TOQUE_ALERTA` (padrão 70%) → ALERTA — surfando uma posição saudável
+**antes** de ela dar ruim. Mostra também o toque "se a tendência continuar"
+(drift = tendência do ativo) e os cenários P5/P50/P95 do preço.
+
 ### Risco de carteira (agregado)
 Além da análise por perna, o Escudo avalia a carteira como um todo
 (`escudo.analyze_portfolio`, pesos = `NOTIONAL`):
 - **HHI setorial** — índice de concentração por setor. `HHI > 0.50` → ALERTA.
 - **Exposição ao IBOV** — fração do portfólio em ativos com `|correlação| ≥ 0.50`
   (de `RANKING_CORREL_IBOV`). `> 80%` → ALERTA de risco direcional sistêmico.
+
+## Monte Carlo — PoE terminal e probabilidade de TOQUE (`montecarlo.py`)
+
+Dois riscos diferentes, duas medidas:
+- **PoE terminal** — `P(S_T < strike)` no vencimento (risco de **exercício**).
+  Por simulação GBM (validada vs. a fórmula fechada `N(-d2)`).
+- **Probabilidade de TOQUE** — `P(min S_t ≤ strike)` em algum momento até o
+  vencimento (risco de **virar ATM/ITM** no caminho). Calculada em **fórmula
+  fechada** (primeira passagem de um GBM, princípio da reflexão) — exata, sem
+  simular caminhos. É sempre ≥ a PoE terminal.
+
+Ambas usam vol **implícita** e **realizada** (GARCH/STDV), com gate = a maior
+(conservador). `drift` padrão 0 (risk-neutral); o Escudo adiciona um cenário de
+**continuação da tendência** (drift = sinal M9/M21 × σ). O **teto de PoE**
+(`POE_MAXIMA`) do Radar vale sempre, com ou sem Monte Carlo (cai para a POE da
+planilha quando o MC está off).
 
 ## Módulo 2 — Radar (prospecção de PUTs)
 
@@ -113,8 +138,11 @@ crédito) e retorno/risco. Sem perna de proteção, o motivo é explicado nos LO
 Ordena por taxa de retorno (`prêmio/strike`) e `IV_RANK`. **Diversificação:**
 no máximo `RADAR_MAX_POR_ATIVO` (padrão 2) oportunidades por ativo-mãe, depois
 corta no `RADAR_TOP_N`. Se `CAPITAL_DISPONIVEL > 0`, sugere o nº de contratos
-(margem-proxy = `strike × 100`, risco de `RISK_PER_TRADE` por trade). Ações em
-tendência de **baixa** (M9<M21) levam um **aviso direcional** no e-mail e nos LOGS.
+(margem-proxy = `strike × 100`, risco de `RISK_PER_TRADE` por trade).
+**Coerência direcional:** venda de PUT / Trava de Alta são estratégias **altistas**,
+então ações em tendência de **baixa** (M9<M21) são **descartadas por padrão**
+(`RADAR_EVITAR_TENDENCIA_BAIXA = TRUE`); com a flag desligada, entram só com um
+aviso. Cada oportunidade também traz a **probabilidade de TOQUE** do strike vendido.
 
 ### `EXPIRY` serial do Sheets
 O `EXPIRY` do scanner vem como **número serial** (e às vezes com fração de hora,

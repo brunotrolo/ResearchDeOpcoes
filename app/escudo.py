@@ -22,7 +22,7 @@ from datetime import date
 
 import pandas as pd
 
-from app import config, frames, parsing, risk_metrics
+from app import config, frames, montecarlo, parsing, risk_metrics
 
 _NIVEL_RANK = {"OK": 0, "AVISO": 1, "ALERTA": 2, "CRITICO": 3}
 
@@ -31,7 +31,7 @@ def _escalate(current: str, candidate: str) -> str:
     return candidate if _NIVEL_RANK[candidate] > _NIVEL_RANK[current] else current
 
 
-def _acao(moneyness: str, nivel: str) -> str:
+def _acao(moneyness: str, nivel: str, toque_gate=None, cfg=None) -> str:
     if nivel == "CRITICO":
         if moneyness == "ITM":
             return "Avaliar encerramento ou rolagem imediata (risco de exercício)"
@@ -41,6 +41,9 @@ def _acao(moneyness: str, nivel: str) -> str:
             return "Monitorar diariamente; preparar rolagem"
         if moneyness == "ATM":
             return "Monitorar de perto; preparar rolagem (gamma alto)"
+        # OTM em ALERTA por TOQUE preditivo: defesa ANTECIPADA, antes de virar ITM.
+        if toque_gate is not None and cfg is not None and toque_gate >= cfg.toque_alerta:
+            return "OTM com alta chance de virar ITM — prepare rolagem/defesa antes"
         return "Acompanhar; recompra ao dobrar o prêmio"
     return "Acompanhar (vigiar moneyness/DTE)"
 
@@ -66,6 +69,13 @@ def analise(a: dict) -> str:
         sinais.append(f"P/L aberto {a['pl_pct']:.0f}%".replace(".", ","))
     if a.get("gamma") is not None and a["gamma"] >= 0.05:
         sinais.append("gamma alto (aceleração)")
+    tg = a.get("toque_gate")
+    if tg is not None and a.get("moneyness") == "OTM":
+        nota = f"≈{tg*100:.0f}% de chance de tocar o strike antes de vencer"
+        tt = a.get("toque_tendencia")
+        if tt is not None and tt - tg >= 0.05:
+            nota += f" ({tt*100:.0f}% se a tendência continuar)"
+        sinais.append(nota)
     if sinais:
         frase += " " + "; ".join(sinais) + "."
     if a.get("acao_sugerida"):
@@ -73,7 +83,32 @@ def analise(a: dict) -> str:
     return frase
 
 
-def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
+def _mc_posicao(sim, vol_map, trend_map, ticker, option_type, spot, strike, dte) -> dict:
+    """Monte Carlo da posição aberta: PoE terminal + prob. de TOQUE (virar
+    ATM/ITM antes de vencer) + cenário de continuação da tendência + P5/P50/P95.
+    {} se faltar simulador/vol. É o que torna o Escudo PREDITIVO, não reativo."""
+    if sim is None or not vol_map or not (spot and strike and dte and dte > 0):
+        return {}
+    t = str(ticker or "").strip().upper()
+    vm = vol_map.get(t, {})
+    iv, real = vm.get("iv"), vm.get("real")
+    sig = max([s for s in (iv, real) if s], default=None)
+    if sig is None:
+        return {}
+    tipo = option_type or "PUT"
+    trend = (trend_map or {}).get(t)
+    drift_tend = (trend * sig) if (trend in (1, -1) and sig) else None
+    info = montecarlo.poe_resumo(sim, spot, strike, dte, iv, real, tipo=tipo)
+    info.update(montecarlo.toque_resumo(sim, spot, strike, dte, iv, real,
+                                        tipo=tipo, drift_tendencia=drift_tend))
+    cen = sim.cenarios_preco(spot, sig, dte)
+    if cen:
+        info["cenarios"] = cen
+    return info
+
+
+def _classify(row: dict, cfg: config.EscudoCfg, today: date,
+              sim=None, vol_map: dict | None = None, trend_map: dict | None = None) -> dict | None:
     moneyness = parsing.to_upper(row.get("moneyness"))
     delta = row.get("delta")
     abs_delta = abs(delta) if delta is not None else None
@@ -101,8 +136,23 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     loss = -pl_value if (pl_value is not None and pl_value < 0) else 0.0
     loss_ratio = (loss / abs(max_loss)) if (max_loss not in (None, 0)) else None
 
+    # Monte Carlo da posição (PoE terminal + TOQUE preditivo + cenários).
+    mc = _mc_posicao(sim, vol_map, trend_map, row.get("ticker"),
+                     row.get("option_type"), spot, strike, dte)
+    toque_gate = mc.get("toque_gate")
+
     nivel = "OK"
     motivos: list[str] = []
+
+    # --- Sinal 0: TOQUE preditivo (Monte Carlo) — só na zona OTM. Responde
+    #     "meu OTM vai VIRAR ATM/ITM antes de vencer?" e avisa ANTES de dar ruim. ---
+    if moneyness == "OTM" and toque_gate is not None:
+        if toque_gate >= cfg.toque_alerta:
+            nivel = _escalate(nivel, "ALERTA")
+            motivos.append(f"TOQUE_{toque_gate*100:.0f}%")
+        elif toque_gate >= cfg.toque_aviso:
+            nivel = _escalate(nivel, "AVISO")
+            motivos.append(f"TOQUE_{toque_gate*100:.0f}%")
 
     # --- Sinal 2: bandas de |Delta| — só na zona OTM (drift rumo ao perigo) ---
     if abs_delta is not None and moneyness == "OTM":
@@ -162,7 +212,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     if nivel == "OK":
         return None
 
-    return {
+    out = {
         "option_ticker": row.get("option_ticker"),
         "ticker": row.get("ticker"),
         "id_strategy": row.get("id_strategy"),
@@ -191,8 +241,10 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         "loss_ratio": loss_ratio,
         "nivel": nivel,
         "motivo": "+".join(motivos),
-        "acao_sugerida": _acao(moneyness, nivel),
+        "acao_sugerida": _acao(moneyness, nivel, toque_gate, cfg),
     }
+    out.update(mc)   # poe_mc_*, toque_*, cenarios
+    return out
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -210,8 +262,15 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None = None) -> list[dict]:
-    """Analisa a PAINEL_ATIVAS e devolve a lista de alertas (todos os níveis)."""
+def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None = None,
+            sim=None, vol_map: dict | None = None, trend_map: dict | None = None) -> list[dict]:
+    """Analisa a PAINEL_ATIVAS e devolve a lista de alertas (todos os níveis).
+
+    Se `sim` (Monte Carlo) + `vol_map` forem passados, o Escudo fica PREDITIVO:
+    calcula a probabilidade de TOQUE (uma perna OTM virar ATM/ITM antes de
+    vencer) e a usa como gatilho — surfando posições saudáveis que estão prestes
+    a dar ruim. `trend_map` (ticker → ±1) adiciona o cenário de continuação da
+    tendência."""
     cfg = cfg or config.ESCUDO
     if df_ativas is None or df_ativas.empty:
         return []
@@ -226,7 +285,7 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
     alerts: list[dict] = []
     for _, row in norm.iterrows():
         record = {k: (None if (isinstance(v, float) and pd.isna(v)) else v) for k, v in row.items()}
-        result = _classify(record, cfg, today)
+        result = _classify(record, cfg, today, sim=sim, vol_map=vol_map, trend_map=trend_map)
         if result is not None:
             result["analise"] = analise(result)
             alerts.append(result)

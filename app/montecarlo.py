@@ -19,6 +19,11 @@ import numpy as np
 _SQRT_252 = math.sqrt(252.0)
 
 
+def _Phi(x: float) -> float:
+    """CDF da normal padrão."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
 class MonteCarloSimulator:
     """GBM de preço terminal, vetorizado. drift e sigma em base ANUAL (decimal)."""
 
@@ -47,6 +52,48 @@ class MonteCarloSimulator:
         d2 = (math.log(spot / strike) + (self.drift - 0.5 * sigma_anual ** 2) * T) / (sigma_anual * math.sqrt(T))
         return 0.5 * (1.0 + math.erf(-d2 / math.sqrt(2.0)))
 
+    def prob_toque(self, spot, strike, dte_dias, sigma_anual, drift=None, tipo: str = "PUT") -> float | None:
+        """P(tocar o strike ANTES do vencimento) — probabilidade de primeira passagem
+        de um GBM, em fórmula FECHADA (princípio da reflexão).
+
+        É a pergunta certa para gerir posição vendida: não "vai exercer no
+        vencimento?" (terminal), mas "meu OTM vai VIRAR ATM/ITM no caminho?".
+        Sempre ≥ a PoE terminal. PUT = barreira abaixo (spot cai até o strike);
+        CALL = barreira acima. `drift` sobrepõe o drift do simulador (p/ cenário
+        de continuação da tendência). None se faltar dado."""
+        if not (spot and strike and sigma_anual and dte_dias and dte_dias > 0):
+            return None
+        eh_call = str(tipo).strip().upper() == "CALL"
+        # Já no/após o strike -> o toque é certo.
+        if (eh_call and spot >= strike) or (not eh_call and spot <= strike):
+            return 1.0
+        mu = self.drift if drift is None else float(drift)
+        sig = float(sigma_anual)
+        T = float(dte_dias) / 365.0
+        nu = mu - 0.5 * sig * sig            # drift do log-preço
+        b = math.log(strike / spot)         # PUT: b<0 ; CALL: b>0
+        sqrtT = sig * math.sqrt(T)
+        try:
+            expo = max(min(2.0 * nu * b / (sig * sig), 50.0), -50.0)
+            if eh_call:
+                p = _Phi((-b + nu * T) / sqrtT) + math.exp(expo) * _Phi((-b - nu * T) / sqrtT)
+            else:
+                p = _Phi((b - nu * T) / sqrtT) + math.exp(expo) * _Phi((b + nu * T) / sqrtT)
+        except (ValueError, ZeroDivisionError, OverflowError):
+            return None
+        return float(min(max(p, 0.0), 1.0))
+
+    def cenarios_preco(self, spot, sigma_anual, dte_dias, drift=None) -> dict | None:
+        """Cenários do preço no vencimento (quantis da lognormal): P5/P50/P95."""
+        if not (spot and sigma_anual and dte_dias and dte_dias > 0):
+            return None
+        mu = self.drift if drift is None else float(drift)
+        sig, T = float(sigma_anual), float(dte_dias) / 365.0
+        m, s = (mu - 0.5 * sig * sig) * T, sig * math.sqrt(T)
+        return {"p05": float(spot * math.exp(m - 1.6448536 * s)),
+                "p50": float(spot * math.exp(m)),
+                "p95": float(spot * math.exp(m + 1.6448536 * s))}
+
 
 def anual_from_daily(daily) -> float | None:
     """Vol diária (ex.: STDV/GARCH = 0,02) -> anual (× √252)."""
@@ -74,3 +121,21 @@ def poe_resumo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual, real_
     p_iv, p_real = _poe(iv_anual), _poe(real_anual)
     vals = [p for p in (p_iv, p_real) if p is not None]
     return {"poe_mc_iv": p_iv, "poe_mc_real": p_real, "poe_mc_gate": (max(vals) if vals else None)}
+
+
+def toque_resumo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual, real_anual,
+                 tipo: str = "PUT", drift_tendencia: float | None = None) -> dict:
+    """Probabilidade de TOQUE (virar ATM/ITM antes de vencer) com IV e com vol
+    realizada; gate = a MAIOR (mais conservador). Se `drift_tendencia` for dado,
+    calcula também o cenário de CONTINUAÇÃO DA TENDÊNCIA (drift != 0)."""
+    def _toque(sig, drift=None):
+        return sim.prob_toque(spot, strike, dte_dias, sig, drift=drift, tipo=tipo) if sig else None
+
+    t_iv, t_real = _toque(iv_anual), _toque(real_anual)
+    vals = [t for t in (t_iv, t_real) if t is not None]
+    out = {"toque_iv": t_iv, "toque_real": t_real, "toque_gate": (max(vals) if vals else None)}
+    if drift_tendencia is not None:
+        # Mesma vol conservadora do gate + o drift da tendência (comparável ao gate).
+        sig = max([s for s in (iv_anual, real_anual) if s], default=None)
+        out["toque_tendencia"] = _toque(sig, drift=drift_tendencia)
+    return out

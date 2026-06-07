@@ -40,6 +40,13 @@ camada de **risco de carteira**: concentração setorial (HHI) e exposição ao 
 > O Escudo só te incomoda por e-mail no que importa (ALERTA/CRÍTICO). Um mesmo
 > alerta não repete no mesmo dia, a não ser que **piore de nível**.
 
+**Aviso ANTES de dar ruim (preditivo):** além de reagir ao que já está ruim, o
+Escudo usa o Monte Carlo para calcular a **probabilidade de TOQUE** — a chance de
+uma posição **OTM virar ATM/ITM antes do vencimento**. Se essa chance for alta, a
+posição (mesmo "saudável" hoje) sobe para AVISO/ALERTA com a ação *"prepare
+rolagem/defesa antes"*. Ele também mostra quanto essa chance aumenta **se a
+tendência atual continuar**.
+
 ---
 
 ## 3. 🎯 Radar — prospecção de venda de PUT
@@ -55,6 +62,10 @@ oportunidades** de venda de PUT, já como **Trava de Alta** (risco limitado).
 5. **Dentro da janela de DTE** (dias até o vencimento) que você definiu.
 6. **Probabilidade de exercício (PoE) abaixo do teto** (`POE_MAXIMA`).
 7. **Diversificada** (no máximo N por ativo, pra não recomendar 5 do mesmo papel).
+8. **Coerente com a direção**: venda de PUT / Trava de Alta são estratégias
+   **altistas**, então ações em **tendência de baixa** (M9<M21) são **descartadas
+   por padrão** (você pode reativar na CONFIG). Cada oportunidade também mostra a
+   **probabilidade de TOQUE** do strike vendido.
 
 ### O que é a "Trava de Alta com PUT" (Bull Put Spread)
 Em vez de vender uma PUT "a seco" (risco que cresce sem limite se a ação cair
@@ -116,7 +127,8 @@ precisa ser **colado no editor do Apps Script** e reimplantado quando muda.
 | **DTE** | *Days To Expiry* — dias corridos até o vencimento |
 | **Moneyness** | OTM (fora do dinheiro), ATM (no dinheiro), ITM (dentro) |
 | **Distância / margem** | Quanto o spot está acima do strike (folga até virar ITM) |
-| **PoE** | Probabilidade de exercício — chance de a PUT terminar ITM (quanto menor, mais seguro) |
+| **PoE** | Probabilidade de exercício — chance de a PUT terminar ITM **no vencimento** (quanto menor, mais seguro) |
+| **Toque** | Probabilidade de o preço **tocar o strike** (virar ATM/ITM) em **algum momento** antes de vencer. É sempre ≥ a PoE — mede o risco do caminho, não só do desfecho |
 | **Delta (Δ) / Gamma (γ)** | Sensibilidade do preço da opção ao ativo / aceleração dessa sensibilidade |
 | **M9 / M21** | Médias móveis de 9 e 21 períodos. M9 > M21 = tendência de alta |
 | **Trava de Alta (Bull Put Spread)** | Vender uma PUT + comprar outra mais OTM = crédito com risco limitado |
