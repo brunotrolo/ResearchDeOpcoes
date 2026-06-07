@@ -223,6 +223,9 @@ def scan(
         df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
         df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
         df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+        if audit is not None:
+            validos = [g for g in gates if g is not None]
+            audit["poe_min"] = round(min(validos), 4) if validos else None
         if poe_max is not None:
             df = df[df["poe_mc_gate"].isna() | (df["poe_mc_gate"] <= poe_max)]
         if audit is not None:

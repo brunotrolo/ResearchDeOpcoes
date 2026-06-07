@@ -134,7 +134,7 @@ DEFAULT_CONFIG = [
     ["ENVIAR_EMAIL_RADAR", "TRUE", "E-mail de oportunidades do Radar (TRUE/FALSE)"],
     ["ESCUDO_NIVEL_MINIMO_EMAIL", "ALERTA", "Nivel minimo p/ e-mail de Escudo (ALERTA ou CRITICO)"],
     ["USAR_MONTECARLO", "TRUE", "Filtrar Radar por prob. de exercicio (Monte Carlo)"],
-    ["POE_MAXIMA", "10", "Prob. maxima de exercicio (%) para recomendar uma PUT"],
+    ["POE_MAXIMA", "25", "Prob. maxima de exercicio (%) para recomendar uma PUT (ex.: 25)"],
 ]
 # Painéis sobrescritos a cada execução (alimentam o web app).
 PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "NIVEL", "MONEYNESS", "DTE",
@@ -296,7 +296,7 @@ class RadarCfg:
     require_has_options: bool = _env_bool("RADAR_REQUIRE_HAS_OPTIONS", True)
     # Monte Carlo: só recomenda PUT com probabilidade de exercício <= poe_max
     use_montecarlo: bool = _env_bool("RADAR_USE_MONTECARLO", True)
-    poe_max: float = _env_float("RADAR_POE_MAX", 0.10)
+    poe_max: float = _env_float("RADAR_POE_MAX", 0.25)
     # Janela de DTE (dias corridos) — sweet spot de venda de prêmio
     dte_min: int = _env_int("RADAR_DTE_MIN", 21)
     dte_max: int = _env_int("RADAR_DTE_MAX", 45)
