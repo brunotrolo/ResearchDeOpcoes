@@ -136,12 +136,21 @@ status, mercado, duração, nº de alertas/oportunidades e o link da execução 
 GitHub. É o "sinal de vida".
 
 **Painel de status + vigia (Apps Script):** [`docs/monitor.gs`](docs/monitor.gs)
-é um Web App que mostra uma página 🟢/🟡/🔴 (abre no celular) lendo o heartbeat,
-e um **dead-man's switch**: um gatilho de tempo que te manda e-mail se o motor
-**não bater ponto durante o pregão** (ou seja, parou). Instruções de deploy no
-topo do arquivo.
+é um Web App (abre no celular) com status 🟢/🟡/🔴, resumo, **últimas
+recomendações**, **suas anotações** e uma **tabela de LOGS** — e um
+**dead-man's switch**: um gatilho de tempo que te manda e-mail se o motor
+**não bater ponto durante o pregão** (ou seja, parou). Deploy no topo do arquivo.
 
-**Testes (sem depender do mercado):** 30 testes cobrem parser, Escudo (por perna
+**E-mails em cards:** o Escudo manda **um card por operação** que precisa de
+ação (com spot, strike, prêmios, gregas, break-even, P/L, ação sugerida e a sua
+anotação); o Radar manda um card por oportunidade **com o porquê** (tendência
+M9/M21, IV Rank, score OpLab, margem). Operações tranquilas não entram no e-mail.
+
+**Anotações (aba COMENTARIOS):** criada automaticamente (colunas `CODIGO`,
+`COMENTARIO`). Escreva o `OPTION_TICKER` (ex.: `PRIOR660`) ou o `TICKER` (ex.:
+`PRIO3`) e seu comentário — ele aparece no card do e-mail e no painel web.
+
+**Testes (sem depender do mercado):** 32 testes cobrem parser, Escudo (por perna
 + carteira), Radar, métricas de risco, o relógio de ponto e o **orquestrador
 inteiro** (mercado fechado, OpLab fora do ar, alerta crítico, oportunidade) com
 as dependências mockadas. Rode quando quiser:

@@ -55,6 +55,14 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
     pl_value = row.get("pl_value")
     max_loss = row.get("max_loss")
     poe = row.get("poe")
+    spot = row.get("spot")
+    strike = row.get("strike")
+    dist_pct = ((spot / strike - 1) * 100) if (spot is not None and strike) else None
+    # PL_PCT e MAX_PROFIT_PCT são frações na espelho (-1,66 = -166%) -> x100.
+    pl_pct = row.get("pl_pct")
+    pl_pct = pl_pct * 100 if pl_pct is not None else None
+    max_profit_pct = row.get("max_profit_pct")
+    max_profit_pct = max_profit_pct * 100 if max_profit_pct is not None else None
     # DTE: prefere a coluna da planilha (DTE_CALENDAR); senão calcula do EXPIRY.
     dte = row.get("dte_calendar")
     if dte is None:
@@ -130,23 +138,33 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date) -> dict | None:
         "option_ticker": row.get("option_ticker"),
         "ticker": row.get("ticker"),
         "id_strategy": row.get("id_strategy"),
+        "sector": row.get("sector"),
         "side": row.get("side"),
         "option_type": row.get("option_type"),
         "moneyness": moneyness,
+        "quantity": row.get("quantity"),
         "dte": dte,
-        "strike": row.get("strike"),
-        "spot": row.get("spot"),
-        "delta": delta,
-        "gamma": gamma,
-        "poe": poe,
+        "expiry": row.get("expiry"),
+        "strike": strike,
+        "spot": spot,
+        "dist_pct": dist_pct,
+        "break_even": row.get("break_even"),
         "entry_price": entry,
         "last_premium": last,
         "buyback_mult": buyback_mult,
+        "delta": delta,
+        "gamma": gamma,
+        "poe": poe,
+        "max_gain": row.get("max_gain"),
+        "max_profit_pct": max_profit_pct,
+        "notional": row.get("notional"),
         "pl_value": pl_value,
+        "pl_pct": pl_pct,
         "loss_ratio": loss_ratio,
         "nivel": nivel,
         "motivo": "+".join(motivos),
         "acao_sugerida": _acao(moneyness, nivel),
+        "comentario": None,
     }
 
 
@@ -158,7 +176,8 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     for field in ("side", "option_type", "moneyness", "status"):
         out[field] = frames.txt(df, "ativas", field)
     for field in ("strike", "spot", "entry_price", "last_premium", "delta", "gamma",
-                  "poe", "pl_value", "pl_pct", "max_loss", "notional", "dte_calendar",
+                  "poe", "pl_value", "pl_pct", "max_loss", "max_gain", "max_profit_pct",
+                  "notional", "quantity", "break_even", "moneyness_ratio", "dte_calendar",
                   "control_flag"):
         out[field] = frames.num(df, "ativas", field)
     return out
