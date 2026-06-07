@@ -48,6 +48,14 @@ def _acao(moneyness: str, nivel: str, toque_gate=None, cfg=None) -> str:
     return "Acompanhar (vigiar moneyness/DTE)"
 
 
+def _brl(v) -> str:
+    """Formata um valor em reais no padrão pt-BR (R$ 3.000,00)."""
+    try:
+        return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return "R$ —"
+
+
 def analise(a: dict) -> str:
     """Conclusão textual gerada pelo MOTOR para a operação (vai ao e-mail e ao painel)."""
     if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
@@ -78,6 +86,15 @@ def analise(a: dict) -> str:
         sinais.append(nota)
     if sinais:
         frase += " " + "; ".join(sinais) + "."
+    pr = a.get("protecao_trava")
+    if pr:
+        extra = f"Risco DEFINIDO pela trava (PUT comprada {pr.get('buy_opt') or '—'}"
+        if pr.get("buy_strike") is not None:
+            extra += f" strike {_brl(pr['buy_strike'])}"
+        extra += ")"
+        if pr.get("risco_max_rs") is not None:
+            extra += f": perda máxima ≈ {_brl(pr['risco_max_rs'])}"
+        frase += " " + extra + "."
     if a.get("acao_sugerida"):
         frase += f" → {a['acao_sugerida']}."
     return frase
@@ -110,9 +127,55 @@ def _mc_posicao(sim, vol_map, trend_map, ticker, option_type, spot, strike, dte)
     return info
 
 
+def _build_strategy_map(norm: pd.DataFrame) -> dict:
+    """{ID_STRATEGY: [pernas]} a partir do DataFrame normalizado — TODAS as pernas,
+    compradas e vendidas. Serve para casar uma PUT vendida com a PUT comprada que a
+    protege (trava de alta = risco definido)."""
+    m: dict = {}
+    for _, r in norm.iterrows():
+        sid = str(r.get("id_strategy") or "").strip()
+        if not sid:
+            continue
+        m.setdefault(sid, []).append({
+            "option_ticker": r.get("option_ticker"), "side": r.get("side"),
+            "option_type": r.get("option_type"), "strike": r.get("strike"),
+            "entry_price": r.get("entry_price"), "quantity": r.get("quantity"),
+        })
+    return m
+
+
+def _protecao_trava(row: dict, strat_map: dict | None) -> dict | None:
+    """Se a PUT vendida tem uma PUT COMPRADA de strike MENOR na MESMA estratégia,
+    é uma Trava de Alta (risco definido). Devolve a perna protetora + a perda
+    máxima da trava (largura − crédito de abertura). None se não houver."""
+    if not strat_map or parsing.to_upper(row.get("option_type")) != "PUT" \
+            or parsing.to_upper(row.get("side")) != "VENDA":
+        return None
+    sid = str(row.get("id_strategy") or "").strip()
+    ks = row.get("strike")
+    if not (sid and ks):
+        return None
+    cand = [p for p in strat_map.get(sid, [])
+            if parsing.to_upper(p.get("side")) == "COMPRA"
+            and parsing.to_upper(p.get("option_type")) == "PUT"
+            and p.get("strike") is not None and p["strike"] < ks]
+    if not cand:
+        return None
+    long_leg = max(cand, key=lambda p: p["strike"])     # a mais próxima (maior strike < strike vendido)
+    bk = float(long_leg["strike"])
+    largura = round(float(ks) - bk, 2)
+    se, be = row.get("entry_price"), long_leg.get("entry_price")
+    credito = round(float(se) - float(be), 2) if (se is not None and be is not None) else None
+    risco_share = round(largura - credito, 2) if credito is not None else largura
+    qty = row.get("quantity") or long_leg.get("quantity")
+    risco_rs = round(risco_share * float(qty), 2) if (qty and risco_share is not None) else None
+    return {"buy_opt": long_leg.get("option_ticker"), "buy_strike": bk, "largura": largura,
+            "credito": credito, "risco_max_share": risco_share, "risco_max_rs": risco_rs}
+
+
 def _classify(row: dict, cfg: config.EscudoCfg, today: date,
               sim=None, vol_map: dict | None = None, trend_map: dict | None = None,
-              mc_sink: list | None = None) -> dict | None:
+              mc_sink: list | None = None, strat_map: dict | None = None) -> dict | None:
     moneyness = parsing.to_upper(row.get("moneyness"))
     delta = row.get("delta")
     abs_delta = abs(delta) if delta is not None else None
@@ -258,6 +321,11 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date,
         "acao_sugerida": _acao(moneyness, nivel, toque_gate, cfg),
     }
     out.update({k: v for k, v in mc.items() if k != "mc_audit"})   # poe_mc_*, toque_*, cenarios
+    # Trava de alta? (PUT comprada protegendo a vendida na mesma estratégia.) A
+    # `analise` é montada pelo chamador (analyze), já enxergando esta proteção.
+    protecao = _protecao_trava(row, strat_map)
+    if protecao:
+        out["protecao_trava"] = protecao
     return out
 
 
@@ -293,16 +361,19 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
 
     norm = _normalize(df_ativas)
     norm = norm[norm["status"] == "ATIVO"]
-    if cfg.only_short_legs:
-        norm = norm[norm["side"] == "VENDA"]
     # CONTROL_FLAG == 0 -> linha desativada manualmente na planilha.
     norm = norm[~(norm["control_flag"] == 0)]
+    # Mapa de pernas por estratégia ANTES de filtrar as vendidas — precisa das
+    # COMPRADAS para reconhecer a trava (PUT comprada que protege a vendida).
+    strat_map = _build_strategy_map(norm)
+    if cfg.only_short_legs:
+        norm = norm[norm["side"] == "VENDA"]
 
     alerts: list[dict] = []
     for _, row in norm.iterrows():
         record = {k: (None if (isinstance(v, float) and pd.isna(v)) else v) for k, v in row.items()}
         result = _classify(record, cfg, today, sim=sim, vol_map=vol_map,
-                           trend_map=trend_map, mc_sink=mc_audit)
+                           trend_map=trend_map, mc_sink=mc_audit, strat_map=strat_map)
         if result is not None:
             result["analise"] = analise(result)
             alerts.append(result)

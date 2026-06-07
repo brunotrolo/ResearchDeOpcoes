@@ -292,6 +292,10 @@ def _log_escudo_alerta(log: Logbook, a: dict) -> None:
     if a.get("cenarios"):
         c = a["cenarios"]
         ctx["cenarios_preco"] = f"P5 {_g(c.get('p05'))} · P50 {_g(c.get('p50'))} · P95 {_g(c.get('p95'))}"
+    pr = a.get("protecao_trava")
+    if pr:
+        ctx["risco_definido_trava"] = (f"compra {pr.get('buy_opt')} strike {_g(pr.get('buy_strike'))} "
+                                       f"→ perda máx ≈ R$ {_g(pr.get('risco_max_rs'))}")
     log.info("ESCUDO", f"Posição {cab}", ctx)
 
 
