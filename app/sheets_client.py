@@ -115,6 +115,31 @@ def ensure_tab(tab_title: str, header: Sequence[str]) -> None:
         ws.append_row(list(header), value_input_option="USER_ENTERED")
 
 
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def ensure_config(tab_title: str, header: Sequence[str], default_rows: Sequence[Sequence]) -> None:
+    """Cria a aba (com cabeçalho + linhas padrão) se ela não existir."""
+    ss = _spreadsheet()
+    try:
+        ss.worksheet(tab_title)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=tab_title, rows=max(len(default_rows) + 5, 20), cols=max(len(header), 3))
+        ws.update(values=[list(header)] + [list(map(_cell, r)) for r in default_rows],
+                  range_name="A1", value_input_option="USER_ENTERED")
+
+
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def replace_tab(tab_title: str, header: Sequence[str], rows: Sequence[Sequence]) -> None:
+    """SOBRESCREVE a aba inteira com header + rows (para painéis 'estado atual')."""
+    ss = _spreadsheet()
+    try:
+        ws = ss.worksheet(tab_title)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=tab_title, rows=max(len(rows) + 10, 20), cols=max(len(header), 5))
+    ws.clear()
+    data = [list(header)] + [[_cell(c) for c in r] for r in rows]
+    ws.update(values=data, range_name="A1", value_input_option="USER_ENTERED")
+
+
 def _cell(value) -> str:
     return "" if value is None else str(value)
 

@@ -36,20 +36,22 @@ from app import (
 from app.logbook import Logbook
 
 
-def _read_comentarios(log: Logbook) -> dict:
-    """Lê a aba COMENTARIOS (cria vazia se faltar) -> {CODIGO: comentário}."""
+def _is_true(v) -> bool:
+    return str(v).strip().upper() in {"TRUE", "1", "SIM", "VERDADEIRO", "ON", "YES"}
+
+
+def _read_config(log: Logbook) -> dict:
+    """Lê a aba CONFIG (cria com padrões se faltar) -> {CHAVE: VALOR}."""
+    out = {c[0]: c[1] for c in config.DEFAULT_CONFIG}
     try:
-        sheets_client.ensure_tab(config.TAB_COMENTARIOS, config.COMENTARIOS_HEADER)
-        df = sheets_client.read_tab("comentarios")
+        sheets_client.ensure_config(config.TAB_CONFIG, config.CONFIG_HEADER, config.DEFAULT_CONFIG)
+        df = sheets_client.read_tab("config")
+        for k, v in zip(frames.raw(df, "config", "chave"), frames.raw(df, "config", "valor")):
+            k = str(k).strip().upper()
+            if k:
+                out[k] = str(v).strip()
     except Exception as exc:
-        log.warn("COMENTARIOS", "Não foi possível ler comentários", {"erro": str(exc)})
-        return {}
-    out: dict = {}
-    for cod, txt in zip(frames.raw(df, "comentarios", "codigo"),
-                        frames.raw(df, "comentarios", "comentario")):
-        cod = str(cod).strip().upper()
-        if cod and str(txt).strip():
-            out[cod] = str(txt).strip()
+        log.warn("CONFIG", "Não foi possível ler CONFIG; usando padrões", {"erro": str(exc)})
     return out
 
 _ESCUDO_HIST_HEADER = [
@@ -97,7 +99,7 @@ def _write_heartbeat(log: Logbook, tz, summary: dict, status: str, duration_s: f
         log.error("MONITOR", "Falha ao gravar heartbeat", {"erro": str(exc)})
 
 
-def _run_escudo(log: Logbook, tz, summary: dict) -> None:
+def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     df = sheets_client.read_tab("ativas")
     _audit_read(log, "PAINEL_ATIVAS", df)
     try:
@@ -108,19 +110,10 @@ def _run_escudo(log: Logbook, tz, summary: dict) -> None:
         log.warn("ESCUDO", "Sem RANKING_CORREL_IBOV (segue sem exposição IBOV)", {"erro": str(exc)})
 
     today = datetime.now(tz).date()
-
-    # Risco de carteira (com auditoria dos cálculos) + risco por perna.
     port_audit: dict = {}
     port_alerts = escudo.analyze_portfolio(df, df_correl, audit=port_audit)
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
-    leg_alerts = escudo.analyze(df, today)
-    alerts = port_alerts + leg_alerts
-
-    comentarios = _read_comentarios(log)
-    if comentarios:
-        for a in alerts:
-            a["comentario"] = (comentarios.get(str(a.get("option_ticker", "")).strip().upper())
-                               or comentarios.get(str(a.get("ticker", "")).strip().upper()))
+    alerts = port_alerts + escudo.analyze(df, today)
 
     por_nivel: dict = {}
     for a in alerts:
@@ -131,21 +124,35 @@ def _run_escudo(log: Logbook, tz, summary: dict) -> None:
              {"por_nivel": por_nivel,
               "detalhe": [{k: a.get(k) for k in _ALERT_FIELDS} for a in alerts]})
 
-    if alerts and not config.RUNTIME.dry_run:
-        ts = _now_str(tz)
-        rows = [[ts, a["option_ticker"], a["ticker"], a["id_strategy"], a["nivel"],
-                 a["moneyness"], a["dte"],
-                 f"{a['delta']:.4f}" if a.get("delta") is not None else "",
-                 f"{a['poe']:.2f}" if a.get("poe") is not None else "",
-                 f"{a['buyback_mult']:.2f}" if a.get("buyback_mult") is not None else "",
-                 a.get("pl_value"), a["motivo"], a["acao_sugerida"]] for a in alerts]
-        sheets_client.append_rows(config.TAB_HIST_ESCUDO, rows, header=_ESCUDO_HIST_HEADER)
-        log.info("ESCUDO", f"{len(rows)} linha(s) gravada(s) em {config.TAB_HIST_ESCUDO}")
+    ts = _now_str(tz)
+    if not config.RUNTIME.dry_run:
+        # PAINEL_ESCUDO (sobrescreve = estado atual, alimenta o web app)
+        painel = [[ts, a.get("ticker"), a.get("option_ticker"), a["nivel"], a.get("moneyness"), a.get("dte"),
+                   f"{a['delta']:.4f}" if a.get("delta") is not None else "",
+                   f"{a['poe']:.2f}" if a.get("poe") is not None else "",
+                   a.get("pl_value"), a.get("analise"), a.get("acao_sugerida")] for a in alerts]
+        try:
+            sheets_client.replace_tab(config.TAB_PAINEL_ESCUDO, config.PAINEL_ESCUDO_HEADER, painel)
+        except Exception as exc:
+            log.error("ESCUDO", "Falha ao gravar PAINEL_ESCUDO", {"erro": str(exc)})
+        if alerts:
+            hist = [[ts, a["option_ticker"], a["ticker"], a["id_strategy"], a["nivel"], a["moneyness"], a["dte"],
+                     f"{a['delta']:.4f}" if a.get("delta") is not None else "",
+                     f"{a['poe']:.2f}" if a.get("poe") is not None else "",
+                     f"{a['buyback_mult']:.2f}" if a.get("buyback_mult") is not None else "",
+                     a.get("pl_value"), a["motivo"], a["acao_sugerida"]] for a in alerts]
+            sheets_client.append_rows(config.TAB_HIST_ESCUDO, hist, header=_ESCUDO_HIST_HEADER)
+            log.info("ESCUDO", f"{len(hist)} linha(s) em {config.TAB_HIST_ESCUDO} + painel atualizado")
 
     worthy = escudo.email_worthy(alerts)
+    if cfg_sheet.get("ESCUDO_NIVEL_MINIMO_EMAIL", "ALERTA").upper() == "CRITICO":
+        worthy = [a for a in worthy if a["nivel"] == "CRITICO"]
+    enviar = _is_true(cfg_sheet.get("ENVIAR_EMAIL")) and _is_true(cfg_sheet.get("ENVIAR_EMAIL_ESCUDO"))
     if config.RUNTIME.dry_run:
-        log.info("ESCUDO", f"[DRY_RUN] {len(worthy)} alerta(s) elegíveis a e-mail (não enviado, dedupe intacto)",
+        log.info("ESCUDO", f"[DRY_RUN] {len(worthy)} elegíveis a e-mail (não enviado)",
                  {"opcoes": [a["option_ticker"] for a in worthy]})
+    elif not enviar:
+        log.info("ESCUDO", f"E-mail do Escudo DESLIGADO na CONFIG ({len(worthy)} elegíveis não enviados)")
     else:
         fresh = state.filter_new_alerts(worthy)
         if fresh:
@@ -156,7 +163,7 @@ def _run_escudo(log: Logbook, tz, summary: dict) -> None:
             log.info("ESCUDO", f"Sem novos alertas para e-mail ({len(worthy)} elegíveis já notificados hoje)")
 
 
-def _run_radar(log: Logbook, tz, summary: dict) -> None:
+def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     df_lucros = sheets_client.read_tab("lucros")
     _audit_read(log, "SELECAO_OPCOES_MAIORES_LUCROS", df_lucros)
     df_volumes = sheets_client.read_tab("volumes")
@@ -173,17 +180,28 @@ def _run_radar(log: Logbook, tz, summary: dict) -> None:
     log.info("RADAR", f"{len(opps)} oportunidade(s) após filtros",
              {"detalhe": [{k: o.get(k) for k in _OPP_FIELDS} for o in opps]})
 
-    if opps and not config.RUNTIME.dry_run:
-        ts = _now_str(tz)
-        rows = [[ts, o["option_ticker"], o["ticker"], o.get("strike"), o.get("spot"),
-                 o.get("spot_strike_ratio"), o.get("iv_rank"), o.get("profit_rate"),
-                 o.get("dte"), o.get("volume_fin")] for o in opps]
-        sheets_client.append_rows(config.TAB_HIST_RADAR, rows, header=_RADAR_HIST_HEADER)
-        log.info("RADAR", f"{len(rows)} linha(s) gravada(s) em {config.TAB_HIST_RADAR}")
+    ts = _now_str(tz)
+    if not config.RUNTIME.dry_run:
+        painel = [[ts, o.get("ticker"), o.get("option_ticker"), o.get("strike"), o.get("spot"),
+                   f"{o['dist_pct']:.2f}" if o.get("dist_pct") is not None else "",
+                   o.get("iv_rank"), o.get("dte"), o.get("analise")] for o in opps]
+        try:
+            sheets_client.replace_tab(config.TAB_PAINEL_RADAR, config.PAINEL_RADAR_HEADER, painel)
+        except Exception as exc:
+            log.error("RADAR", "Falha ao gravar PAINEL_RADAR", {"erro": str(exc)})
+        if opps:
+            hist = [[ts, o["option_ticker"], o["ticker"], o.get("strike"), o.get("spot"),
+                     o.get("spot_strike_ratio"), o.get("iv_rank"), o.get("profit_rate"),
+                     o.get("dte"), o.get("volume_fin")] for o in opps]
+            sheets_client.append_rows(config.TAB_HIST_RADAR, hist, header=_RADAR_HIST_HEADER)
+            log.info("RADAR", f"{len(hist)} linha(s) em {config.TAB_HIST_RADAR} + painel atualizado")
 
+    enviar = _is_true(cfg_sheet.get("ENVIAR_EMAIL")) and _is_true(cfg_sheet.get("ENVIAR_EMAIL_RADAR"))
     if config.RUNTIME.dry_run:
-        log.info("RADAR", f"[DRY_RUN] {len(opps)} oportunidade(s) (e-mail não enviado, dedupe intacto)",
+        log.info("RADAR", f"[DRY_RUN] {len(opps)} oportunidade(s) (e-mail não enviado)",
                  {"opcoes": [o["option_ticker"] for o in opps]})
+    elif not enviar:
+        log.info("RADAR", f"E-mail do Radar DESLIGADO na CONFIG ({len(opps)} oportunidades não enviadas)")
     else:
         fresh = state.filter_new_opportunities(opps)
         if fresh:
@@ -232,10 +250,14 @@ def run() -> int:
                 log.info("EMAIL_TESTE", f"E-mail de teste {'enviado' if sent else 'NÃO enviado'}")
                 status_final = "EMAIL_TESTE"
             else:
+                cfg_sheet = _read_config(log)
+                log.info("CONFIG", "Configuração lida da planilha",
+                         {k: cfg_sheet.get(k) for k in
+                          ("ENVIAR_EMAIL", "ENVIAR_EMAIL_ESCUDO", "ENVIAR_EMAIL_RADAR", "ESCUDO_NIVEL_MINIMO_EMAIL")})
                 # --- Módulos ---
                 for name, fn in (("ESCUDO", _run_escudo), ("RADAR", _run_radar)):
                     try:
-                        fn(log, tz, summary)
+                        fn(log, tz, summary, cfg_sheet)
                     except Exception as exc:
                         summary["errors"] += 1
                         status_final = "ERROR"

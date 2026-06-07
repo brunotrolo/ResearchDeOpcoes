@@ -114,7 +114,7 @@ TABS: dict[str, TabSpec] = {
     "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1),         _env("TAB_M9M21_DECIMAL", ",")),
     "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ",")),
     "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
-    "comentarios":  TabSpec(_env("TAB_COMENTARIOS", "COMENTARIOS"),             _env_int("TAB_COMENTARIOS_HEADER_ROW", 1),  _env("TAB_COMENTARIOS_DECIMAL", ",")),
+    "config":       TabSpec(_env("TAB_CONFIG", "CONFIG"),                       _env_int("TAB_CONFIG_HEADER_ROW", 1),       _env("TAB_CONFIG_DECIMAL", ",")),
 }
 
 # Abas de escrita (logs + histórico). Criadas automaticamente se não existirem.
@@ -122,8 +122,23 @@ TAB_LOGS = _env("TAB_LOGS", "LOGS")
 TAB_HIST_ESCUDO = _env("TAB_HIST_ESCUDO", "ESCUDO_HISTORICO")
 TAB_HIST_RADAR = _env("TAB_HIST_RADAR", "RADAR_HISTORICO")
 TAB_MONITOR = _env("TAB_MONITOR", "MONITOR")
-TAB_COMENTARIOS = _env("TAB_COMENTARIOS", "COMENTARIOS")
-COMENTARIOS_HEADER = ["CODIGO", "COMENTARIO", "ATUALIZADO_EM"]
+TAB_CONFIG = _env("TAB_CONFIG", "CONFIG")
+TAB_PAINEL_ESCUDO = _env("TAB_PAINEL_ESCUDO", "PAINEL_ESCUDO")
+TAB_PAINEL_RADAR = _env("TAB_PAINEL_RADAR", "PAINEL_RADAR")
+
+# Aba CONFIG (CHAVE/VALOR) — botões do projeto, controláveis pelo celular.
+CONFIG_HEADER = ["CHAVE", "VALOR", "DESCRICAO"]
+DEFAULT_CONFIG = [
+    ["ENVIAR_EMAIL", "TRUE", "Liga/desliga TODOS os e-mails (TRUE/FALSE)"],
+    ["ENVIAR_EMAIL_ESCUDO", "TRUE", "E-mail de defesa de posicoes (TRUE/FALSE)"],
+    ["ENVIAR_EMAIL_RADAR", "TRUE", "E-mail de oportunidades do Radar (TRUE/FALSE)"],
+    ["ESCUDO_NIVEL_MINIMO_EMAIL", "ALERTA", "Nivel minimo p/ e-mail de Escudo (ALERTA ou CRITICO)"],
+]
+# Painéis sobrescritos a cada execução (alimentam o web app).
+PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "NIVEL", "MONEYNESS", "DTE",
+                        "DELTA", "POE", "PL_VALUE", "ANALISE", "ACAO"]
+PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "STRIKE", "SPOT", "DIST_PCT",
+                       "IV_RANK", "DTE", "ANALISE"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
@@ -225,9 +240,9 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "ticker": "TICKER",
         "correl_value": "CORREL_VALUE",
     },
-    "comentarios": {
-        "codigo": "CODIGO",                  # OPTION_TICKER ou TICKER
-        "comentario": "COMENTARIO",
+    "config": {
+        "chave": "CHAVE",
+        "valor": "VALOR",
     },
 }
 

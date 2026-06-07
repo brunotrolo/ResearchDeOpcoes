@@ -110,6 +110,15 @@ def _motivo_radar(rec: dict) -> str:
     return " · ".join(partes) if partes else "—"
 
 
+def analise(o: dict) -> str:
+    """Recomendação textual gerada pelo MOTOR (vai ao e-mail e ao painel)."""
+    base = f"Vender PUT de {o.get('ticker', '')}"
+    if o.get("strike") is not None:
+        base += f" no strike R$ {o['strike']:.2f}".replace(".", ",")
+    m = o.get("motivo")
+    return base + "." + ((" " + m) if (m and m != "—") else "")
+
+
 def scan(
     df_lucros: pd.DataFrame,
     df_volumes: pd.DataFrame | None = None,
@@ -201,6 +210,7 @@ def scan(
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["motivo"] = _motivo_radar(rec)
+        rec["analise"] = analise(rec)
 
     # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
     # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).

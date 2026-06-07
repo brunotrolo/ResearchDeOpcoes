@@ -15,7 +15,7 @@
 
 const SHEET_ID = '1zuYr3lTOSsVJzvrBJezZ5hFMIM3jpt2jDfR8uCapKds';
 const EMAIL_ALERTA = 'brunotrolo@gmail.com';
-const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_RADAR = 'RADAR_HISTORICO', ABA_COMENT = 'COMENTARIOS';
+const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_PESC = 'PAINEL_ESCUDO', ABA_PRAD = 'PAINEL_RADAR';
 const LIMITE_MIN = 75;
 const PREGAO_INI = 10, PREGAO_FIM = 18;
 
@@ -64,6 +64,12 @@ function _ultimas(aba, n, ncols) {
   return sh.getRange(start, 1, last - start + 1, ncols).getValues();
 }
 
+function _todas(aba, ncols) {
+  const sh = _planilha().getSheetByName(aba);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, ncols).getValues();
+}
+
 function _card(titulo, conteudo) {
   return "<div style='background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin:12px 0;overflow:hidden'>"
     + (titulo ? "<div style='padding:10px 14px;font-weight:700;border-bottom:1px solid #f0f0f0'>" + titulo + "</div>" : "")
@@ -74,6 +80,14 @@ function _corStatus(s) {
   s = String(s);
   if (s.indexOf('ERR') === 0 || s === 'FAIL') return '#dc2626';
   if (s.indexOf('WARN') === 0) return '#ca8a04';
+  return '#16a34a';
+}
+
+function _corNivel(n) {
+  n = String(n);
+  if (n === 'CRITICO') return '#dc2626';
+  if (n === 'ALERTA') return '#ea580c';
+  if (n === 'AVISO') return '#ca8a04';
   return '#16a34a';
 }
 
@@ -101,24 +115,31 @@ function doGet(e) {
     + "</tr></table>"
     + (hb.runUrl ? "<div style='padding:6px 14px'><a href='" + hb.runUrl + "'>ver execução no GitHub »</a></div>" : ""));
 
-  // Recomendações recentes (RADAR_HISTORICO)
-  const rad = _ultimas(ABA_RADAR, 8, 10).reverse();
-  if (rad.length) {
-    let t = "<table width='100%' style='border-collapse:collapse;font-size:13px'>"
-      + "<tr style='background:#f9fafb;text-align:left'><th style='padding:6px 10px'>Opção</th><th>Ativo</th>"
-      + "<th>Strike</th><th>IV Rank</th><th>DTE</th></tr>";
-    rad.forEach(r => { t += "<tr><td style='padding:6px 10px;border-top:1px solid #f0f0f0'>" + r[1] + "</td><td>"
-      + r[2] + "</td><td>" + r[3] + "</td><td>" + r[6] + "</td><td>" + r[8] + "</td></tr>"; });
-    html += _card("📡 Últimas recomendações do Radar", t + "</table>");
+  // Suas operações em atenção (PAINEL_ESCUDO) — análise escrita pelo motor
+  const esc = _todas(ABA_PESC, 11);
+  if (esc.length) {
+    let t = "<table width='100%' style='border-collapse:collapse;font-size:13px'>";
+    esc.forEach(r => {
+      const cor = _corNivel(r[3]);
+      t += "<tr><td style='padding:7px 12px;border-top:1px solid #f0f0f0;vertical-align:top'>"
+        + "<div><b>" + r[1] + "</b> " + r[2] + " <span style='color:" + cor + ";font-weight:700'>" + r[3]
+        + "</span> <span style='color:#888'>" + r[4] + " · " + r[5] + "d</span></div>"
+        + "<div style='color:#374151;margin-top:2px'>" + r[9] + "</div></td></tr>";
+    });
+    html += _card("🛡️ Suas operações em atenção (" + esc.length + ")", t + "</table>");
   }
 
-  // Suas anotações (COMENTARIOS)
-  const com = _ultimas(ABA_COMENT, 30, 3);
-  if (com.length) {
+  // Oportunidades agora (PAINEL_RADAR) — análise escrita pelo motor
+  const rad = _todas(ABA_PRAD, 9);
+  if (rad.length) {
     let t = "<table width='100%' style='border-collapse:collapse;font-size:13px'>";
-    com.forEach(c => { if (c[0]) t += "<tr><td style='padding:6px 10px;border-top:1px solid #f0f0f0;font-weight:600;white-space:nowrap'>"
-      + c[0] + "</td><td style='padding:6px 10px;border-top:1px solid #f0f0f0'>" + c[1] + "</td></tr>"; });
-    html += _card("📝 Suas anotações", t + "</table>");
+    rad.forEach(r => {
+      t += "<tr><td style='padding:7px 12px;border-top:1px solid #f0f0f0;vertical-align:top'>"
+        + "<div><b>" + r[1] + "</b> " + r[2] + " <span style='color:#888'>strike " + r[3]
+        + " · IV " + r[6] + " · " + r[7] + "d</span></div>"
+        + "<div style='color:#374151;margin-top:2px'>" + r[8] + "</div></td></tr>";
+    });
+    html += _card("📡 Oportunidades agora (" + rad.length + ")", t + "</table>");
   }
 
   // Logs recentes
