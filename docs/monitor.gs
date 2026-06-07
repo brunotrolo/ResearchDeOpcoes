@@ -244,6 +244,8 @@ function _cardRadar() {
   let items = '';
   rows.forEach(r => {
     const g = n => (idx[n] == null ? '' : r[idx[n]]);
+    const temTrava = g('TRAVA_VENDE_STRIKE') !== '' && g('TRAVA_VENDE_STRIKE') != null;
+    const tag = temTrava ? '🛡️ Trava de Alta com PUT' : '📉 Venda de PUT';
     const dist = _num(g('DIST_PCT'));
     const distTxt = dist == null ? '—' : (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + '%';
     const aprox = String(g('PREMIO_FONTE') || '').indexOf('estim') >= 0 ? '≈ ' : '';
@@ -256,8 +258,9 @@ function _cardRadar() {
       + _chip('Prêmio', aprox + _fmtMoney(g('PREMIO')))
       + (g('VOLUME_FIN') !== '' ? _chip('Vol', _fmtMoney(g('VOLUME_FIN'))) : '');
     items += "<div class='item' style='border-left-color:#16a34a'>"
-      + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span></div>"
-      + "<div class='sub'>" + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ")</div>"
+      + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span>"
+      + "<span class='tag'>" + tag + "</span></div>"
+      + "<div class='sub'>" + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ") · prêmio " + aprox + _fmtMoney(g('PREMIO')) + "/ação</div>"
       + "<div class='chips'>" + chips + "</div>" + _travaBlock(g)
       + (g('ANALISE') ? "<div class='analise'>💡 " + esc(g('ANALISE')) + "</div>" : '') + "</div>";
   });
@@ -307,7 +310,10 @@ function _render() {
     + "<div class='hstat'><div class='l'>Oportunidades</div><div class='v'>" + _fmtNum(hb.radar, 0) + "</div></div>"
     + "<div class='hstat'><div class='l'>Duração</div><div class='v'>" + _fmtNum(hb.dur, 1) + "s</div></div>"
     + "</div></div>";
-  const toolbar = "<div class='toolbar'><button class='btn' onclick='location.reload()'>↻ Atualizar agora</button>"
+  let execUrl = '';
+  try { execUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { execUrl = ''; }
+  execUrl = String(execUrl).replace(/['"<>]/g, '');   // seguro p/ embutir em JS
+  const toolbar = "<div class='toolbar'><button class='btn' onclick='_refresh()'>↻ Atualizar agora</button>"
     + "<span class='muted'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</span></div>";
   const resumo = _section('Resumo da última execução', (hb.runUrl ? "<a href='" + esc(hb.runUrl) + "'>GitHub »</a>" : ''),
     _grid([
@@ -320,7 +326,12 @@ function _render() {
     ]) + (hb.notes ? "<div class='acao' style='padding:2px 14px 10px'>" + esc(hb.notes) + "</div>" : ''));
   const foot = "<div class='foot'>Pregão " + PREGAO_INI + "h–" + PREGAO_FIM + "h (seg–sex) · vigia avisa por e-mail se o motor parar"
     + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes</div>";
-  const script = "<script>setTimeout(function(){location.reload();}," + (REFRESH_S * 1000) + ");</script>";
+  // Auto-refresh robusto: navega o TOPO para a URL /exec (o reload do iframe
+  // sandbox expira o token e some com a tela). Cai para reload se não houver URL.
+  const script = "<script>var EXEC_URL='" + execUrl + "';"
+    + "function _refresh(){try{if(EXEC_URL){window.top.location.href=EXEC_URL;return;}}catch(e){}"
+    + "try{if(EXEC_URL){location.href=EXEC_URL;return;}}catch(e){}location.reload();}"
+    + "setTimeout(_refresh," + (REFRESH_S * 1000) + ");</script>";
 
   return "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
     + "<meta name='viewport' content='width=device-width, initial-scale=1'><style>" + _css() + "</style></head>"
@@ -355,6 +366,7 @@ function _css() {
     + ".op{color:#64748b;font-size:13px}"
     + ".sub{color:#64748b;font-size:12.5px;margin-top:3px}"
     + ".nivel{margin-left:auto;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.3px}"
+    + ".tag{margin-left:auto;font-size:11.5px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:999px;padding:3px 10px}"
     + ".chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}"
     + ".chip{font-size:12px;background:#f1f5f9;border:1px solid #e6ebf2;border-radius:8px;padding:3px 9px;color:#334155;white-space:nowrap}"
     + ".chip b{color:#0f172a}"

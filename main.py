@@ -288,7 +288,10 @@ def _log_radar_opp(log: Logbook, o: dict) -> None:
                f"risco máx R$ {_g(tr['risco_max'])}, retorno/risco {_pctg(tr.get('retorno_risco'))}")
     else:
         det = f"SEM trava: {o.get('trava_motivo', '—')} (recomenda PUT a seco)"
-    log.info("RADAR", f"Oportunidade {cab}", {"recomendacao": det, "porque": o.get("motivo")})
+    ctx = {"recomendacao": det, "porque": o.get("motivo")}
+    if o.get("premio_estimado"):
+        ctx["por_que_estimado"] = o.get("premio_diag")
+    log.info("RADAR", f"Oportunidade {cab}", ctx)
 
 
 def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:

@@ -249,6 +249,17 @@ def _premio_opcao(rec: dict, prem_map: dict) -> tuple[float | None, bool, str]:
     return None, True, "sem match"
 
 
+def _diag_premio(option_ticker, prem_map: dict) -> str:
+    """Diz, p/ o log, POR QUE o prêmio caiu na estimativa: opção ausente do
+    scanner OU presente mas sem preço válido (mostra close/bid/ask crus)."""
+    o = str(option_ticker or "").strip().upper()
+    if o not in prem_map:
+        return "opção AUSENTE do scanner (vencimento/série não baixados)"
+    info = prem_map[o]
+    return (f"no scanner, porém sem preço válido — close={info.get('close')}, "
+            f"bid={info.get('bid')}, ask={info.get('ask')}")
+
+
 def _porque_sem_trava(rec: dict, chain: dict, largura_pct: float) -> str:
     """Explica, em português, por que NÃO foi possível montar a Trava (para o log)."""
     t = str(rec.get("ticker") or "").strip().upper()
@@ -450,6 +461,8 @@ def scan(
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["motivo"] = _motivo_radar(rec)
         rec["premio"], rec["premio_estimado"], rec["premio_fonte"] = _premio_opcao(rec, prem_map)
+        if rec["premio_estimado"]:
+            rec["premio_diag"] = _diag_premio(rec.get("option_ticker"), prem_map)
         if cfg.usar_trava:
             rec["trava"] = _build_trava(rec, chain, cfg.trava_largura_pct)
             if rec["trava"] is None:
@@ -488,7 +501,7 @@ def _audit_opp(r: dict) -> dict:
         "opcao": r.get("option_ticker"), "ticker": r.get("ticker"),
         "strike": r.get("strike"), "dte": r.get("dte"),
         "premio": r.get("premio"), "fonte_premio": r.get("premio_fonte"),
-        "estimado": bool(r.get("premio_estimado")),
+        "estimado": bool(r.get("premio_estimado")), "diag_premio": r.get("premio_diag"),
         "iv_rank": r.get("iv_rank"), "poe_mc": r.get("poe_mc_gate"),
         "trava": trava_txt,
     }
