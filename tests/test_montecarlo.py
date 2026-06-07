@@ -93,3 +93,29 @@ def test_cenarios_preco_ordenados():
     sim = montecarlo.MonteCarloSimulator(drift=0.0)
     c = sim.cenarios_preco(100, 0.30, 30)
     assert c["p05"] < c["p50"] < c["p95"]
+
+
+def test_simular_completo_contrato_de_auditoria():
+    """O dossiê de auditoria carrega entradas (reprodutibilidade), saídas e a
+    validação fechada; e o MC converge à fórmula N(-d2) (erro pequeno)."""
+    sim = montecarlo.MonteCarloSimulator(n=40000, seed=42, drift=0.0)
+    a = montecarlo.simular_completo(sim, 100, 95, 30, 0.40, 0.25, tipo="PUT", drift_tendencia=-0.30)
+    # Entradas presentes (dá para reproduzir a simulação a partir do log).
+    for k in ("spot", "strike", "dte_dias", "sigma_iv", "sigma_real", "sigma_gate",
+              "drift_sim", "drift_tendencia", "n_cenarios", "seed"):
+        assert k in a
+    assert a["n_cenarios"] == 40000 and a["seed"] == 42 and a["sigma_gate"] == 0.40
+    # Saídas + validação.
+    assert a["poe_mc_gate"] == max(a["poe_mc_iv"], a["poe_mc_real"])
+    assert a["toque_gate"] >= a["poe_mc_gate"]            # toque ⊇ terminal
+    assert a["cenarios"]["p05"] < a["cenarios"]["p50"] < a["cenarios"]["p95"]
+    # Convergência: o MC (IV) bate com a fórmula fechada N(-d2).
+    assert a["erro_vs_fechada"] is not None and a["erro_vs_fechada"] < 0.02
+
+
+def test_simular_completo_e_reprodutivel():
+    """Mesmas entradas + seed => MESMO dossiê (auditoria reprodutível)."""
+    sim = montecarlo.MonteCarloSimulator(n=10000, seed=7, drift=0.0)
+    a = montecarlo.simular_completo(sim, 100, 96, 35, 0.45, 0.30)
+    b = montecarlo.simular_completo(sim, 100, 96, 35, 0.45, 0.30)
+    assert a == b

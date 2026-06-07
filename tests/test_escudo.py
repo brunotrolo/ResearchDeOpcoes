@@ -72,6 +72,37 @@ def test_toque_estresse_usa_tendencia_de_baixa():
     assert a["toque_tendencia"] >= a["toque_gate"]   # baixa continuar -> pior ou igual
 
 
+def test_mc_audit_coleta_toda_posicao_inclusive_ok():
+    """A auditoria Monte Carlo registra TODA posição simulada — inclusive a
+    saudável (nível OK), que não vira alerta mas precisa de prova de que o toque
+    é mesmo baixo. Sem o coletor `mc_audit`, esse dossiê se perdia."""
+    sim = montecarlo.MonteCarloSimulator(seed=1)
+    vol_map = {"TICK": {"iv": 0.30, "real": 0.25}}
+    df = _df([_ativa(OPTION_TICKER="TICKX80", MONEYNESS="OTM", STRIKE="R$ 80,00", SPOT="R$ 100,00",
+                     ENTRY_PRICE="R$ 1,00", LAST_PREMIUM="R$ 0,90", DELTA="-0,10",
+                     PL_VALUE="R$ 10,00", MAX_LOSS="R$ 8.000,00", DTE_CALENDAR="40")])
+    mc_audit: list = []
+    alerts = escudo.analyze(df, HOJE, sim=sim, vol_map=vol_map, mc_audit=mc_audit)
+    assert alerts == []                        # posição saudável: nenhum alerta
+    assert len(mc_audit) == 1                   # ...mas COM dossiê de auditoria
+    rec = mc_audit[0]
+    assert rec["nivel"] == "OK" and rec["option_ticker"] == "TICKX80"
+    assert rec["poe_mc_gate"] is not None and rec["toque_gate"] is not None
+    assert rec["n_cenarios"] == sim.n and rec["seed"] == sim.seed   # reprodutível
+    assert rec["erro_vs_fechada"] is not None   # validação fechada N(-d2) presente
+
+
+def test_mc_audit_vazio_sem_simulador():
+    """Sem Monte Carlo (sim=None), o coletor fica vazio — nada a auditar."""
+    sim = None
+    df = _df([_ativa(OPTION_TICKER="TICKX80", MONEYNESS="OTM", STRIKE="R$ 80,00", SPOT="R$ 100,00",
+                     ENTRY_PRICE="R$ 1,00", LAST_PREMIUM="R$ 0,90", DELTA="-0,10",
+                     PL_VALUE="R$ 10,00", MAX_LOSS="R$ 8.000,00", DTE_CALENDAR="40")])
+    mc_audit: list = []
+    escudo.analyze(df, HOJE, sim=sim, mc_audit=mc_audit)
+    assert mc_audit == []
+
+
 def test_atm_benigno_e_aviso():
     alerts = escudo.analyze(_df([_ativa(
         OPTION_TICKER="DIRRR123", MONEYNESS="ATM", STRIKE="R$ 12,33", SPOT="R$ 12,26",

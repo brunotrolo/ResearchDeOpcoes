@@ -139,3 +139,48 @@ def toque_resumo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual, rea
         sig = max([s for s in (iv_anual, real_anual) if s], default=None)
         out["toque_tendencia"] = _toque(sig, drift=drift_tendencia)
     return out
+
+
+def simular_completo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual,
+                     real_anual, tipo: str = "PUT", drift_tendencia: float | None = None) -> dict:
+    """Bateria COMPLETA de Monte Carlo para AUDITORIA (aba LOGS, SERVICE=MONTE_CARLO).
+
+    Roda de uma vez tudo o que decide uma posição/oportunidade e devolve um
+    dicionário PLANO e REPRODUTÍVEL (mesmas entradas + seed ⇒ mesma saída):
+
+      • ENTRADAS: spot, strike, DTE, vol IV e realizada, drift, nº de cenários, seed
+        — para reproduzir a simulação exatamente a partir do log;
+      • PoE terminal (IV, realizada, gate) + a VALIDAÇÃO fechada N(-d2) e o
+        `erro_vs_fechada` (distância MC↔fórmula lognormal; mede convergência ≈0);
+      • TOQUE/primeira passagem (IV, realizada, gate, cenário de tendência);
+      • CENÁRIOS de preço no vencimento (P5/P50/P95).
+
+    Não dispara exceção: campo sem dado vem como None."""
+    eh_call = str(tipo).strip().upper() == "CALL"
+    poe = poe_resumo(sim, spot, strike, dte_dias, iv_anual, real_anual, tipo=tipo)
+    toque = toque_resumo(sim, spot, strike, dte_dias, iv_anual, real_anual,
+                         tipo=tipo, drift_tendencia=drift_tendencia)
+    sig_gate = max([s for s in (iv_anual, real_anual) if s], default=None)
+    cen = sim.cenarios_preco(spot, sig_gate, dte_dias) if sig_gate else None
+    # Validação independente: fórmula fechada N(-d2) com a IV, na MESMA convenção
+    # do poe_mc_iv (PUT = P(S_T<K); CALL = complemento). O MC deve convergir a ela.
+    fechada = sim.poe_put_fechada(spot, strike, dte_dias, iv_anual) if iv_anual else None
+    if fechada is not None and eh_call:
+        fechada = 1.0 - fechada
+    p_iv = poe.get("poe_mc_iv")
+    erro = round(abs(p_iv - fechada), 4) if (p_iv is not None and fechada is not None) else None
+    return {
+        # --- entradas (reprodutibilidade) ---
+        "spot": spot, "strike": strike, "dte_dias": dte_dias, "tipo": str(tipo).upper(),
+        "sigma_iv": iv_anual, "sigma_real": real_anual, "sigma_gate": sig_gate,
+        "drift_sim": sim.drift, "drift_tendencia": drift_tendencia,
+        "n_cenarios": sim.n, "seed": sim.seed,
+        # --- PoE terminal + validação fechada ---
+        "poe_mc_iv": p_iv, "poe_mc_real": poe.get("poe_mc_real"), "poe_mc_gate": poe.get("poe_mc_gate"),
+        "poe_fechada_iv": (round(fechada, 4) if fechada is not None else None), "erro_vs_fechada": erro,
+        # --- Toque (primeira passagem) ---
+        "toque_iv": toque.get("toque_iv"), "toque_real": toque.get("toque_real"),
+        "toque_gate": toque.get("toque_gate"), "toque_tendencia": toque.get("toque_tendencia"),
+        # --- cenários terminais ---
+        "cenarios": cen,
+    }

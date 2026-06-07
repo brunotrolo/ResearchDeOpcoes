@@ -548,12 +548,14 @@ def scan_scanner(
         rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         rec["premio_estimado"] = False  # scanner = CLOSE real, nunca estimado
-        # Prob. de TOQUE: chance de a PUT vendida virar ATM/ITM antes de vencer.
+        # Prob. de TOQUE + dossiê COMPLETO da simulação (auditoria Monte Carlo).
         if mc is not None and vol_map:
             vm = vol_map.get(str(rec.get("ticker", "")).strip().upper(), {})
-            rec["toque_gate"] = montecarlo.toque_resumo(
-                mc, spot, strike, rec.get("dte"), vm.get("iv"), vm.get("real"),
-                tipo="PUT").get("toque_gate")
+            full = montecarlo.simular_completo(mc, spot, strike, rec.get("dte"),
+                                               vm.get("iv"), vm.get("real"), tipo="PUT")
+            rec["toque_gate"] = full.get("toque_gate")
+            if full.get("sigma_gate") is not None:
+                rec["mc_audit"] = full
         # Aviso direcional: vender PUT em ação caindo é apostar contra a maré.
         if rec.get("m9m21_trend") == -1:
             rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
@@ -714,6 +716,14 @@ def scan(
         rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
         if rec.get("m9m21_trend") == -1:
             rec["alerta_tendencia"] = "Ação em tendência de BAIXA (M9<M21) — venda de PUT é direcional"
+        # Prob. de TOQUE + dossiê COMPLETO da simulação (auditoria Monte Carlo).
+        if mc is not None and vol_map:
+            vm = vol_map.get(str(rec.get("ticker", "")).strip().upper(), {})
+            full = montecarlo.simular_completo(mc, spot, strike, rec.get("dte"),
+                                               vm.get("iv"), vm.get("real"), tipo="PUT")
+            rec["toque_gate"] = full.get("toque_gate")
+            if full.get("sigma_gate") is not None:
+                rec["mc_audit"] = full
         rec["motivo"] = _motivo_radar(rec)
         rec["premio"], rec["premio_estimado"], rec["premio_fonte"] = _premio_opcao(rec, prem_map)
         if rec["premio_estimado"]:

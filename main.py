@@ -36,6 +36,7 @@ from app import (
     state,
 )
 from app.logbook import Logbook
+from app.monte_carlo_engine import MonteCarloEngine
 
 
 def _is_true(v) -> bool:
@@ -344,6 +345,78 @@ def _log_radar_opp(log: Logbook, o: dict) -> None:
     log.info("RADAR", f"Oportunidade {cab}", ctx)
 
 
+# --- AUDITORIA MONTE CARLO (aba LOGS, SERVICE=MONTE_CARLO) -------------------
+def _mc_engine(sim):
+    """MonteCarloEngine (simulação de TRAJETÓRIA) como 2ª opinião INDEPENDENTE na
+    auditoria, espelhando n e seed do simulador de produção. None se o Monte Carlo
+    estiver desligado ou a auditoria não for verbosa (AUDIT_VERBOSE)."""
+    if sim is None or not config.AUDIT_VERBOSE:
+        return None
+    try:
+        return MonteCarloEngine(num_simulations=sim.n, seed=sim.seed)
+    except Exception:
+        return None
+
+
+def _mc_crosscheck(engine: MonteCarloEngine, r: dict, terminal: bool) -> dict:
+    """2ª opinião por SIMULAÇÃO (motor independente) p/ validar o gate fechado.
+    Risco (Escudo): trajetória, drift 0 (conservador). Oportunidade (Radar):
+    terminal, drift Selic. Convenções propositalmente distintas do gate — é um
+    cruzamento, não uma cópia."""
+    spot, strike, dte, sig = r.get("spot"), r.get("strike"), r.get("dte_dias"), r.get("sigma_gate")
+    if not (spot and strike and dte and sig):
+        return {"erro": "dados insuficientes para simular"}
+    is_put = str(r.get("tipo", "PUT")).upper() != "CALL"
+    try:
+        if terminal:
+            d = engine.evaluate_opportunity(spot, strike, dte, sig, is_put=is_put)
+            return {"motor": "monte_carlo_engine", "metodo": "TERMINAL", "drift": engine.risk_free_rate,
+                    "poe_terminal_sim": d["poe_mc_terminal"], "preco_terminal_medio": d["terminal_price_avg"],
+                    "n": d["simulations_run"]}
+        d = engine.check_active_risk(spot, strike, dte, sig, is_put=is_put, drift=0.0)
+        return {"motor": "monte_carlo_engine", "metodo": "TRAJETORIA", "drift": 0.0,
+                "toque_sim": d["poe_mc_gate"], "preco_minimo_medio": d["min_price_avg"],
+                "n": d["simulations_run"]}
+    except Exception as exc:
+        return {"erro": str(exc)}
+
+
+def _mc_linha(r: dict, terminal: bool) -> str:
+    nivel = r.get("nivel") or ("OPORTUNIDADE" if terminal else "OK")
+    s = (f"{r.get('ticker')} {r.get('option_ticker')} {r.get('tipo', 'PUT')} [{nivel}] — "
+         f"PoE {_pctg(r.get('poe_mc_gate'))} (gate)")
+    if not terminal:
+        s += f" · Toque {_pctg(r.get('toque_gate'))}"
+    s += (f" · σ {_pctg(r.get('sigma_gate'))} · n={_g(r.get('n_cenarios'))} · "
+          f"erro↔fechada {_pctg(r.get('erro_vs_fechada'))}")
+    return s
+
+
+def _log_montecarlo(log: Logbook, contexto: str, registros: list, engine=None, terminal: bool = False) -> None:
+    """Grava a auditoria Monte Carlo na aba LOGS: um RESUMO + UMA linha por
+    simulação (SERVICE=MONTE_CARLO), com entradas (spot/strike/DTE/σ/drift/n/seed),
+    saídas (PoE e Toque por IV/realizada/gate) e a validação fechada N(-d2) —
+    reprodutível. Se `engine`, anexa a 2ª opinião por simulação de trajetória."""
+    if not registros:
+        return
+    erros = [r["erro_vs_fechada"] for r in registros if r.get("erro_vs_fechada") is not None]
+    resumo = {"motor_producao": "GBM (PoE terminal + toque por 1ª passagem fechada)",
+              "n_cenarios": registros[0].get("n_cenarios"), "seed": registros[0].get("seed"),
+              "drift_sim": registros[0].get("drift_sim")}
+    if erros:
+        resumo["erro_medio_mc_vs_fechada"] = f"{sum(erros) / len(erros) * 100:.2f}%"
+        resumo["erro_max_mc_vs_fechada"] = f"{max(erros) * 100:.2f}%"
+    if engine is not None:
+        resumo["validacao_simulada"] = f"monte_carlo_engine (trajetória), n={engine.num_simulations}"
+    log.info("MONTE_CARLO", f"{contexto}: {len(registros)} simulação(ões) auditada(s)", resumo)
+    for r in registros:
+        ctx = dict(r)
+        if engine is not None:
+            ctx["validacao_simulada"] = _mc_crosscheck(engine, r, terminal)
+        log.log("MONTE_CARLO", r.get("nivel") or ("OPORTUNIDADE" if terminal else "OK"),
+                _mc_linha(r, terminal), ctx)
+
+
 def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     df = sheets_client.read_tab("ativas")
     _audit_read(log, "PAINEL_ATIVAS", df)
@@ -372,8 +445,9 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     port_audit: dict = {}
     port_alerts = escudo.analyze_portfolio(df, df_correl, cfg=escudo_cfg, audit=port_audit)
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
-    alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg,
-                                          sim=sim, vol_map=vmap, trend_map=trend_map)
+    mc_records: list = []
+    alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg, sim=sim,
+                                          vol_map=vmap, trend_map=trend_map, mc_audit=mc_records)
 
     por_nivel: dict = {}
     for a in alerts:
@@ -386,6 +460,8 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     # Auditoria detalhada: uma linha por posição, em sequência (CRITICO -> AVISO).
     for a in alerts:
         _log_escudo_alerta(log, a)
+    # Auditoria Monte Carlo: dossiê completo da simulação de CADA posição.
+    _log_montecarlo(log, "ESCUDO", mc_records, engine=_mc_engine(sim))
 
     ts = _now_str(tz)
     if not config.RUNTIME.dry_run:
@@ -459,6 +535,15 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     # Auditoria detalhada: uma linha por oportunidade, com prêmio, fonte e Trava.
     for o in opps:
         _log_radar_opp(log, o)
+    # Auditoria Monte Carlo: dossiê completo da simulação de CADA oportunidade.
+    mc_records = []
+    for o in opps:
+        if o.get("mc_audit"):
+            rec = dict(o["mc_audit"])
+            rec.update({"ticker": o.get("ticker"), "option_ticker": o.get("option_ticker"),
+                        "nivel": "OPORTUNIDADE"})
+            mc_records.append(rec)
+    _log_montecarlo(log, "RADAR", mc_records, engine=_mc_engine(sim), terminal=True)
 
     ts = _now_str(tz)
     if not config.RUNTIME.dry_run:
