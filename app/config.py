@@ -141,6 +141,7 @@ DEFAULT_CONFIG = [
     ["MC_CENARIOS", "10000", "Numero de simulacoes do Monte Carlo"],
     ["MC_DRIFT", "0", "Tendencia do GBM (0 = sem vies; ex.: 0.05 = juros)"],
     # --- Radar (filtros de prospeccao) ---
+    ["RADAR_FONTE", "auto", "Fonte das oportunidades: scanner / lucros / auto"],
     ["RADAR_IV_RANK_MIN", "50", "IV Rank minimo (premio gordo)"],
     ["RADAR_RATIO_MIN", "1.02", "Distancia minima spot/strike (1.02 = 2% OTM)"],
     ["RADAR_DTE_MIN", "21", "DTE minimo (dias)"],
@@ -243,21 +244,29 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "company": "COMPANY_NAME",
     },
     "scanner": {
-        # Cadeia de opções com liquidez/gregas — fonte do prêmio REAL (CLOSE) e
-        # da perna comprada da Trava. Cabeçalhos seguem a convenção das demais
-        # abas; se algum diferir, o leitor cai para a estimativa (VE/strike).
+        # Cadeia COMPLETA de opções (preço CLOSE, POE, IV, gregas, moneyness).
+        # Fonte primária do Radar e do prêmio REAL. A planilha está em pt-BR
+        # (vírgula); o leitor auto-detecta o separador decimal.
         "option_ticker": "OPTION_TICKER",
         "ticker": "TICKER",
         "category": "CATEGORY",        # PUT / CALL (algumas exportações usam TYPE)
         "type": "TYPE",                # PUT / CALL (redundante com CATEGORY)
         "strike": "STRIKE",
-        "close": "CLOSE",              # último preço/prêmio negociado da opção
-        "price": "PRICE",              # preço teórico/atual (exportação rica)
-        "mid_price": "MID_PRICE",      # meio do book (exportação rica)
+        "spot": "SPOT",
+        "close": "CLOSE",              # PREÇO/prêmio da opção (sempre o CLOSE)
+        "price": "PRICE",              # preço teórico/atual (fallback)
+        "mid_price": "MID_PRICE",      # meio do book (fallback)
         "bid": "BID",
         "ask": "ASK",
         "dte": "DTE_CALENDAR",
         "expiry": "EXPIRY",
+        "poe": "POE",                  # prob. de exercício (0..1) calculada pela OpLab
+        "iv_calc": "IV_CALC",          # volatilidade implícita da opção
+        "moneyness": "MONEYNESS",      # ITM / ATM / OTM
+        "moneyness_ratio": "MONEYNESS_RATIO",  # ~ spot/strike
+        "return_on_strike": "RETURN_ON_STRIKE",  # prêmio/strike (retorno da venda)
+        "volume_fin": "VOLUME_FIN",
+        "delta": "DELTA",
     },
     "volumes": {
         "ticker": "TICKER",
@@ -334,6 +343,9 @@ class EscudoCfg:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class RadarCfg:
+    # Fonte das oportunidades: "scanner" (cadeia completa com CLOSE/POE/IV — prêmio
+    # SEMPRE real), "lucros" (aba de maiores lucros) ou "auto" (scanner se houver).
+    fonte: str = _env("RADAR_FONTE", "auto")
     option_type: str = _env("RADAR_OPTION_TYPE", "PUT")
     iv_rank_min: float = _env_float("RADAR_IV_RANK_MIN", 50.0)
     spot_strike_ratio_min: float = _env_float("RADAR_SPOT_STRIKE_RATIO_MIN", 1.02)

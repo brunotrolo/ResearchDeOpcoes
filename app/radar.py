@@ -336,6 +336,196 @@ def analise(o: dict) -> str:
     return base + "." + ((" " + m) if (m and m != "—") else "")
 
 
+def _iv_rank_map(df_dados: pd.DataFrame | None) -> dict[str, float]:
+    """{TICKER: IV_RANK} de DADOS_ATIVOS — o scanner traz IV_CALC (vol implícita
+    da opção), não o IV RANK (percentil do ano). Cruzamos pelo ativo-mãe."""
+    if df_dados is None or df_dados.empty:
+        return {}
+    tickers = [str(t).strip().upper() for t in frames.raw(df_dados, "dados_ativos", "ticker")]
+    iv = _clean_list(frames.num(df_dados, "dados_ativos", "iv_rank"))
+    return {t: iv[i] for i, t in enumerate(tickers) if t and iv[i] is not None}
+
+
+def _normalize_scanner(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza SCANNER_OPCOES para o schema do Radar. O prêmio é SEMPRE o
+    valor REAL da planilha (CLOSE -> MID_PRICE -> PRICE -> meio do book), nunca
+    estimado. Também marca se a linha é PUT (por CATEGORY ou TYPE) e calcula a
+    distância spot/strike e a taxa de retorno (prêmio/strike)."""
+    out = pd.DataFrame(index=df.index)
+    out["option_ticker"] = frames.raw(df, "scanner", "option_ticker")
+    out["ticker"] = frames.txt(df, "scanner", "ticker")
+    out["category"] = frames.txt(df, "scanner", "category")
+    out["type"] = frames.txt(df, "scanner", "type")
+    out["moneyness"] = frames.txt(df, "scanner", "moneyness")
+    out["expiry"] = frames.raw(df, "scanner", "expiry")
+    for field in ("strike", "spot", "close", "price", "mid_price", "bid", "ask",
+                  "dte", "poe", "iv_calc", "moneyness_ratio", "return_on_strike",
+                  "volume_fin", "delta"):
+        out[field] = frames.num(df, "scanner", field)
+
+    # É PUT? (CATEGORY ou TYPE — exportações preenchem ora um, ora outro.)
+    out["eh_put"] = [_eh_put(c) or _eh_put(t)
+                     for c, t in zip(out["category"], out["type"])]
+
+    # Prêmio REAL + fonte, linha a linha (mesmo critério da scanner_index).
+    prem, fonte = [], []
+    for i in range(len(out)):
+        p, f = _resolve_premio(_v(out["close"], i), _v(out["mid_price"], i),
+                               _v(out["price"], i), _v(out["bid"], i),
+                               _v(out["ask"], i), _v(out["strike"], i))
+        prem.append(p)
+        fonte.append(f)
+    out["premio"] = prem
+    out["premio_fonte"] = fonte
+
+    # Distância spot/strike: usa SPOT/STRIKE reais; cai no MONEYNESS_RATIO.
+    ratio = out["spot"] / out["strike"]
+    out["spot_strike_ratio"] = ratio.where(
+        ratio.notna() & (out["strike"] > 0), out["moneyness_ratio"])
+
+    # Taxa de retorno da venda = prêmio / strike (%).
+    def _rate(p, k):
+        return round(float(p) / float(k) * 100, 2) if (p and k and not _isnan(k)) else None
+    out["profit_rate"] = [_rate(p, k) for p, k in zip(out["premio"], out["strike"])]
+    return out
+
+
+def scan_scanner(
+    df_scanner: pd.DataFrame,
+    df_dados_ativos: pd.DataFrame | None = None,
+    cfg: config.RadarCfg | None = None,
+    audit: dict | None = None,
+    mc: "montecarlo.MonteCarloSimulator | None" = None,
+    vol_map: dict | None = None,
+    poe_max: float | None = None,
+) -> list[dict]:
+    """RADAR lendo DIRETO do SCANNER_OPCOES — o prêmio é SEMPRE o CLOSE real da
+    planilha e a Trava de Alta usa pernas do MESMO vencimento (mesma cadeia).
+
+    Mantém os filtros do Bruno (PUT, IV Rank, distância OTM, liquidez, DTE,
+    Monte Carlo) e devolve as Top-N oportunidades já com a Trava montada. O
+    `audit` recebe o funil estágio a estágio (incl. os DTEs disponíveis no
+    scanner — útil quando a janela de DTE não bate com o que foi baixado)."""
+    cfg = cfg or config.RADAR
+    if df_scanner is None or df_scanner.empty:
+        if audit is not None:
+            audit.update({"fonte": "scanner", "total": 0, "final": 0})
+        return []
+
+    df = _normalize_scanner(df_scanner)
+    _, chain = scanner_index(df_scanner)
+    iv_rank = _iv_rank_map(df_dados_ativos)
+    df["iv_rank"] = pd.to_numeric(
+        df["ticker"].map(lambda t: iv_rank.get(str(t).strip().upper())), errors="coerce")
+
+    premio_ok = df["premio"].map(lambda p: _premio_valido(p, None))
+
+    # Máscaras cumulativas (mesma didática do scan da aba de lucros).
+    m_put = df["eh_put"].astype(bool)
+    m_prem = m_put & premio_ok
+    # IV Rank é "nice to have": onde o ativo não está em DADOS_ATIVOS, não barra.
+    m_iv = m_prem & ((df["iv_rank"] >= cfg.iv_rank_min) | df["iv_rank"].isna())
+    m_ratio = m_iv & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
+    m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
+    m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
+    mask = m_dte
+
+    if audit is not None:
+        dtes = sorted({int(d) for d in df.loc[m_prem, "dte"].dropna().tolist()})
+        audit.update({
+            "fonte": "scanner",
+            "total": int(len(df)),
+            "put": int(m_put.sum()),
+            "premio_ok": int(m_prem.sum()),
+            "iv_rank_ok": int(m_iv.sum()),
+            "ratio_ok": int(m_ratio.sum()),
+            "volume_ok": int(m_vol.sum()),
+            "dte_ok": int(m_dte.sum()),
+            "apos_tendencia": int(mask.sum()),
+            "dtes_disponiveis": dtes,
+            "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
+                        "dte_min": cfg.dte_min, "dte_max": cfg.dte_max},
+        })
+
+    df = df[mask].copy()
+
+    # Universo monitorado (DADOS_ATIVOS), igual ao scan da aba de lucros.
+    if cfg.use_dados_ativos_whitelist:
+        allowed = _whitelist(df_dados_ativos, cfg.require_has_options)
+        if allowed:
+            df = df[df["ticker"].isin(allowed)]
+
+    # Monte Carlo — ou, sem ele, a POE risk-neutral que já vem no scanner.
+    if not df.empty:
+        if mc is not None and vol_map:
+            gates, ivs, reals = [], [], []
+            for _, r in df.iterrows():
+                vm = vol_map.get(str(r["ticker"]).strip().upper(), {})
+                res = montecarlo.poe_resumo(mc, r["spot"], r["strike"], r["dte"], vm.get("iv"), vm.get("real"))
+                gates.append(res["poe_mc_gate"])
+                ivs.append(res["poe_mc_iv"])
+                reals.append(res["poe_mc_real"])
+            df["poe_mc_gate"] = pd.to_numeric(gates, errors="coerce")
+            df["poe_mc_iv"] = pd.to_numeric(ivs, errors="coerce")
+            df["poe_mc_real"] = pd.to_numeric(reals, errors="coerce")
+        else:
+            df["poe_mc_gate"] = df["poe"]  # POE da própria planilha (OpLab)
+        if audit is not None:
+            validos = [g for g in df["poe_mc_gate"].tolist() if g is not None and not _isnan(g)]
+            audit["poe_min"] = round(min(validos), 4) if validos else None
+        if poe_max is not None:
+            df = df[df["poe_mc_gate"].isna() | (df["poe_mc_gate"] <= poe_max)]
+        if audit is not None:
+            audit["apos_montecarlo"] = int(len(df))
+
+    if audit is not None:
+        audit["apos_filtros"] = int(len(df))
+        audit["scanner_opcoes"] = int(len(df_scanner))
+        audit["scanner_puts_na_cadeia"] = sum(len(v) for v in chain.values())
+
+    if df.empty:
+        if audit is not None:
+            audit.update({"final": 0, "premios_reais": 0,
+                          "premios_estimados": 0, "travas_montadas": 0, "oportunidades": []})
+        return []
+
+    df = df.sort_values(by=["profit_rate", "iv_rank"], ascending=[False, False],
+                        na_position="last").head(cfg.top_n)
+
+    records = [_to_record(r) for _, r in df.iterrows()]
+    if audit is not None:
+        audit["final"] = len(records)
+
+    sig = _underlying_signals(df_dados_ativos)
+    for rec in records:
+        spot, strike = rec.get("spot"), rec.get("strike")
+        rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
+        rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
+        rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
+        rec["premio_estimado"] = False  # scanner = CLOSE real, nunca estimado
+        rec["motivo"] = _motivo_radar(rec)
+        if cfg.usar_trava:
+            rec["trava"] = _build_trava(rec, chain, cfg.trava_largura_pct)
+            if rec["trava"] is None:
+                rec["trava_motivo"] = _porque_sem_trava(rec, chain, cfg.trava_largura_pct)
+        rec["analise"] = analise(rec)
+
+    if audit is not None:
+        audit["premios_reais"] = len(records)
+        audit["premios_estimados"] = 0
+        audit["travas_montadas"] = sum(1 for r in records if r.get("trava"))
+        audit["oportunidades"] = [_audit_opp(r) for r in records]
+
+    # Sizing (proxy de margem: strike * 100 = tamanho do lote).
+    if config.CAPITAL_DISPONIVEL > 0:
+        for rec in records:
+            strike = rec.get("strike")
+            if strike:
+                rec["contratos_sugeridos"] = risk_metrics.tamanho_posicao(
+                    config.CAPITAL_DISPONIVEL, strike * 100, config.RISK_PER_TRADE)
+    return records
+
+
 def scan(
     df_lucros: pd.DataFrame,
     df_volumes: pd.DataFrame | None = None,

@@ -172,3 +172,75 @@ def test_trava_largura_maior_escolhe_strike_mais_baixo():
     o = radar.scan(_opp_vale(), cfg=cfg, df_scanner=scanner)[0]
     assert o["trava"]["buy_strike"] == 70.0
     assert o["trava"]["credito"] == 1.40 and o["trava"]["risco_max"] == 4.60
+
+
+# --- Radar lendo DIRETO do SCANNER_OPCOES (prêmio SEMPRE CLOSE real) --------
+def _scan_full(**kw) -> dict:
+    """Linha completa do SCANNER_OPCOES para o scan_scanner (cadeia toda)."""
+    base = dict(CATEGORY="PUT", DTE_CALENDAR="30", SPOT="78,99",
+                VOLUME_FIN="500.000,00", BID="", ASK="", POE="")
+    base.update(kw)
+    return base
+
+
+def test_scan_scanner_premio_real_e_trava():
+    """Lendo o scanner: prêmio é o CLOSE real e a Trava sai do mesmo vencimento."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00"),
+        _scan_full(OPTION_TICKER="VALEX74", TICKER="VALE3", STRIKE="74,00", CLOSE="1,40"),
+        _scan_full(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72,00", CLOSE="1,00"),
+        _scan_full(OPTION_TICKER="VALEX70", TICKER="VALE3", STRIKE="70,00", CLOSE="0,60"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    audit: dict = {}
+    opps = radar.scan_scanner(scanner, cfg=cfg, audit=audit)
+    assert opps, "scanner deveria gerar oportunidades"
+    top = opps[0]
+    assert top["option_ticker"] == "VALEX76"          # maior taxa (2/76)
+    assert top["premio"] == 2.00 and top["premio_estimado"] is False
+    assert top["premio_fonte"] == "CLOSE"
+    tr = top["trava"]
+    assert tr["sell_strike"] == 76.0 and tr["buy_strike"] == 72.0   # alvo 72,2 -> 72
+    assert tr["credito"] == 1.00 and tr["risco_max"] == 3.00
+    assert audit["fonte"] == "scanner" and audit["premios_reais"] == len(opps)
+    assert audit["premios_estimados"] == 0
+
+
+def test_scan_scanner_dte_fora_da_janela_reporta_dtes():
+    """Se o scanner só tem DTE 10 e a janela é 21-45, zera e reporta os DTEs."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00", DTE_CALENDAR="10"),
+        _scan_full(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72,00", CLOSE="1,00", DTE_CALENDAR="10"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)   # dte_min=21
+    audit: dict = {}
+    opps = radar.scan_scanner(scanner, cfg=cfg, audit=audit)
+    assert opps == []
+    assert audit["dte_ok"] == 0 and audit["dtes_disponiveis"] == [10]
+
+
+def test_scan_scanner_iv_rank_do_dados_ativos_barra():
+    """IV Rank vem de DADOS_ATIVOS; ativo com IV Rank baixo é barrado."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00"),
+        _scan_full(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72,00", CLOSE="1,00"),
+    ])
+    dados = pd.DataFrame([dict(TICKER="VALE3", HAS_OPTIONS="TRUE", IV_RANK="20")])
+    cfg = config.RadarCfg()                                   # iv_rank_min=50, whitelist on
+    audit: dict = {}
+    opps = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg, audit=audit)
+    assert opps == [] and audit["iv_rank_ok"] == 0
+
+
+def test_scan_scanner_poe_da_planilha_filtra():
+    """Sem Monte Carlo, a POE da própria planilha (OpLab) serve de porteiro."""
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="SEGURA", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00", POE="0,10"),
+        _scan_full(OPTION_TICKER="ARRISCADA", TICKER="VALE3", STRIKE="74,00", CLOSE="1,40", POE="0,40"),
+        _scan_full(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72,00", CLOSE="1,00", POE="0,05"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    opps = radar.scan_scanner(scanner, cfg=cfg, poe_max=0.25)
+    tickers = [o["option_ticker"] for o in opps]
+    assert "ARRISCADA" not in tickers                        # POE 0,40 > 0,25
+    assert "SEGURA" in tickers
