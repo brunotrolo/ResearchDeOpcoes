@@ -167,3 +167,19 @@ def test_config_desliga_email(monkeypatch, harness):
     assert rc == 0
     assert harness["escudo_email"] == []          # e-mail desligado na CONFIG
     assert any(p[0] == app_main.config.TAB_PAINEL_ESCUDO for p in harness["painel"])  # painel atualizado
+
+
+def test_config_ajusta_filtro_do_radar(monkeypatch, harness):
+    # Mudar RADAR_DTE_MIN na CONFIG deve refiltrar o Radar (sem mexer no código).
+    _market(monkeypatch, "A")
+    lucros = pd.DataFrame([dict(
+        OPTION_TICKER="USIMS112", TICKER="USIM5", CATEGORY="PUT", EXPIRY="46.220,00",
+        DTE_CALENDAR="30,00", STRIKE="11,29", SPOT="11,52", SPOT_STRIKE_RATIO="1,02",
+        IV_RANK="84", IV_CURRENT="55", VOLUME_FIN="500.000,00",
+        PROFIT_RATE_IF_EXERCISED="3,5", M9M21_TREND="1", SECTOR="", COMPANY_NAME="")])
+    dados = pd.DataFrame([dict(TICKER="USIM5", HAS_OPTIONS="TRUE")])
+    cfg = pd.DataFrame([dict(CHAVE="RADAR_DTE_MIN", VALOR="40")])  # exige DTE >= 40
+    _tabs(monkeypatch, {"lucros": lucros, "dados_ativos": dados, "config": cfg})
+    rc = app_main.run()
+    assert rc == 0
+    assert harness["radar_email"] == []   # a opção de DTE 30 saiu pelo ajuste da CONFIG

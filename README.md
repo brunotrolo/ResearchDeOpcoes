@@ -146,9 +146,11 @@ ação (spot, strike, prêmios, gregas, break-even, P/L, ação e a **análise e
 pelo motor**); o Radar manda um card por oportunidade **com o porquê** (tendência
 M9/M21, IV Rank, score OpLab, margem). Operações tranquilas não entram no e-mail.
 
-**Botões na aba CONFIG:** criada automaticamente (`CHAVE`/`VALOR`). Controle pelo
-celular, sem mexer em código: `ENVIAR_EMAIL`, `ENVIAR_EMAIL_ESCUDO`,
-`ENVIAR_EMAIL_RADAR` (TRUE/FALSE) e `ESCUDO_NIVEL_MINIMO_EMAIL` (ALERTA/CRITICO).
+**Painel de controle na aba CONFIG:** criada automaticamente (`CHAVE`/`VALOR`),
+controla **toda a estratégia pelo celular, sem código** — e-mails (liga/desliga),
+filtros do Radar (IV Rank, distância, DTE, Top-N), gatilhos do Escudo (recompra,
+Delta, DTE, perda, gamma, HHI, IBOV) e o Monte Carlo (PoE máxima, cenários).
+Referência completa das 24 chaves em [`docs/CONFIG.md`](docs/CONFIG.md).
 
 **Painéis ao vivo (`PAINEL_ESCUDO` / `PAINEL_RADAR`):** sobrescritos a cada
 execução com o estado atual + a **análise do motor** por operação/oportunidade.

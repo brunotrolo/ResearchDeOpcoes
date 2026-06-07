@@ -16,6 +16,7 @@ fica nas abas ESCUDO_HISTORICO / RADAR_HISTORICO.
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 import time
@@ -41,16 +42,82 @@ def _is_true(v) -> bool:
     return str(v).strip().upper() in {"TRUE", "1", "SIM", "VERDADEIRO", "ON", "YES"}
 
 
+def _num(v) -> float:
+    return float(str(v).replace(",", "."))
+
+
+def _int(v) -> int:
+    return int(float(str(v).replace(",", ".")))
+
+
+def _pct(v) -> float:
+    return float(str(v).replace(",", ".")) / 100.0
+
+
+# CHAVE da aba CONFIG -> (campo da dataclass, conversor). Permite controlar a
+# estratégia inteira pela planilha (sem mexer no código).
+_ESCUDO_MAP = {
+    "ESCUDO_RECOMPRA_OTM": ("buyback_mult_otm", _num),
+    "ESCUDO_RECOMPRA_OTM_CRIT": ("buyback_mult_otm_crit", _num),
+    "ESCUDO_RECOMPRA_ATM": ("buyback_mult_atm", _num),
+    "ESCUDO_DELTA_ALERTA": ("delta_warn", _num),
+    "ESCUDO_DELTA_URGENTE": ("delta_urgent", _num),
+    "ESCUDO_DTE_CRITICO": ("dte_critical", _int),
+    "ESCUDO_PERDA_MAX_PCT": ("loss_vs_maxloss_pct", _pct),
+    "ESCUDO_GAMMA_MAX": ("gamma_max", _num),
+    "ESCUDO_HHI_MAX": ("hhi_max", _num),
+    "ESCUDO_IBOV_EXPOSICAO_MAX": ("ibov_exposure_max", _pct),
+    "ESCUDO_IBOV_CORREL_MIN": ("ibov_correl_threshold", _num),
+}
+_RADAR_MAP = {
+    "RADAR_IV_RANK_MIN": ("iv_rank_min", _num),
+    "RADAR_RATIO_MIN": ("spot_strike_ratio_min", _num),
+    "RADAR_DTE_MIN": ("dte_min", _int),
+    "RADAR_DTE_MAX": ("dte_max", _int),
+    "RADAR_TOP_N": ("top_n", _int),
+    "RADAR_EXIGIR_TENDENCIA_ALTA": ("require_trend_up", _is_true),
+}
+
+
+def _overrides(cfg_sheet: dict, mapping: dict) -> dict:
+    out = {}
+    for chave, (field, caster) in mapping.items():
+        v = cfg_sheet.get(chave)
+        if v not in (None, ""):
+            try:
+                out[field] = caster(v)
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def _escudo_cfg(cfg_sheet: dict) -> config.EscudoCfg:
+    ov = _overrides(cfg_sheet, _ESCUDO_MAP)
+    return dataclasses.replace(config.ESCUDO, **ov) if ov else config.ESCUDO
+
+
+def _radar_cfg(cfg_sheet: dict) -> config.RadarCfg:
+    ov = _overrides(cfg_sheet, _RADAR_MAP)
+    return dataclasses.replace(config.RADAR, **ov) if ov else config.RADAR
+
+
 def _mc_setup(cfg_sheet: dict):
     """Devolve (simulador, poe_max) conforme a CONFIG; (None, None) se desligado."""
     if not _is_true(cfg_sheet.get("USAR_MONTECARLO", "TRUE")):
         return None, None
     try:
-        poe_max = float(str(cfg_sheet.get("POE_MAXIMA", "10")).replace(",", ".")) / 100.0
+        poe_max = _pct(cfg_sheet.get("POE_MAXIMA", "25"))
     except (TypeError, ValueError):
         poe_max = config.RADAR.poe_max
-    sim = montecarlo.MonteCarloSimulator(config.MC_N, config.MC_SEED, config.MC_DRIFT)
-    return sim, poe_max
+    try:
+        n = _int(cfg_sheet.get("MC_CENARIOS", config.MC_N))
+    except (TypeError, ValueError):
+        n = config.MC_N
+    try:
+        drift = _num(cfg_sheet.get("MC_DRIFT", config.MC_DRIFT))
+    except (TypeError, ValueError):
+        drift = config.MC_DRIFT
+    return montecarlo.MonteCarloSimulator(n, config.MC_SEED, drift), poe_max
 
 
 def _mc_enrich(items: list[dict], vol_map: dict, sim) -> None:
@@ -131,10 +198,11 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
         log.warn("ESCUDO", "Sem RANKING_CORREL_IBOV (segue sem exposição IBOV)", {"erro": str(exc)})
 
     today = datetime.now(tz).date()
+    escudo_cfg = _escudo_cfg(cfg_sheet)
     port_audit: dict = {}
-    port_alerts = escudo.analyze_portfolio(df, df_correl, audit=port_audit)
+    port_alerts = escudo.analyze_portfolio(df, df_correl, cfg=escudo_cfg, audit=port_audit)
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
-    alerts = port_alerts + escudo.analyze(df, today)
+    alerts = port_alerts + escudo.analyze(df, today, cfg=escudo_cfg)
 
     sim, _ = _mc_setup(cfg_sheet)
     if sim is not None:
@@ -199,10 +267,11 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     df_dados = sheets_client.read_tab("dados_ativos")
     _audit_read(log, "DADOS_ATIVOS", df_dados)
 
+    radar_cfg = _radar_cfg(cfg_sheet)
     sim, poe_max = _mc_setup(cfg_sheet)
     vmap = radar.build_vol_map(df_dados) if sim is not None else None
     funil: dict = {}
-    opps = radar.scan(df_lucros, df_volumes, df_dados, audit=funil,
+    opps = radar.scan(df_lucros, df_volumes, df_dados, cfg=radar_cfg, audit=funil,
                       mc=sim, vol_map=vmap, poe_max=poe_max)
     log.info("RADAR", "Funil de filtros", funil)
     summary["radar_opps"] = len(opps)
