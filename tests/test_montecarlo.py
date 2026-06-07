@@ -41,3 +41,10 @@ def test_poe_resumo_gate_e_o_maior():
     r = montecarlo.poe_resumo(sim, 100, 92, 30, 0.40, 0.20)   # iv alto, vol real baixa
     assert r["poe_mc_gate"] == max(r["poe_mc_iv"], r["poe_mc_real"])
     assert r["poe_mc_iv"] > r["poe_mc_real"]                  # mais vol -> mais PoE
+
+
+def test_poe_call_e_complemento_da_put():
+    sim = montecarlo.MonteCarloSimulator(n=20000, seed=5)
+    put = montecarlo.poe_resumo(sim, 100, 90, 30, 0.30, None, tipo="PUT")["poe_mc_iv"]
+    call = montecarlo.poe_resumo(sim, 100, 90, 30, 0.30, None, tipo="CALL")["poe_mc_iv"]
+    assert abs((put + call) - 1.0) < 1e-9   # P(S<K) + P(S>K) = 1

@@ -58,9 +58,19 @@ def anual_from_iv_pct(iv_pct) -> float | None:
     return float(iv_pct) / 100.0 if iv_pct else None
 
 
-def poe_resumo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual, real_anual) -> dict:
-    """PoE com IV e com vol realizada; gate = a MAIOR (mais conservadora)."""
-    p_iv = sim.poe_put(spot, strike, dte_dias, iv_anual) if iv_anual else None
-    p_real = sim.poe_put(spot, strike, dte_dias, real_anual) if real_anual else None
+def poe_resumo(sim: MonteCarloSimulator, spot, strike, dte_dias, iv_anual, real_anual,
+               tipo: str = "PUT") -> dict:
+    """PoE de exercício com IV e com vol realizada; gate = a MAIOR (conservador).
+
+    PUT exerce com S_T < strike; CALL exerce com S_T > strike (complemento)."""
+    eh_call = str(tipo).strip().upper() == "CALL"
+
+    def _poe(sig):
+        if not sig:
+            return None
+        p = sim.poe_put(spot, strike, dte_dias, sig)   # P(S_T < strike)
+        return None if p is None else (1.0 - p if eh_call else p)
+
+    p_iv, p_real = _poe(iv_anual), _poe(real_anual)
     vals = [p for p in (p_iv, p_real) if p is not None]
     return {"poe_mc_iv": p_iv, "poe_mc_real": p_real, "poe_mc_gate": (max(vals) if vals else None)}
