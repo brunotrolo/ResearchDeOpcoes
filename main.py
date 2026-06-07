@@ -244,8 +244,7 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     if not config.RUNTIME.dry_run:
         # PAINEL_ESCUDO (sobrescreve = estado atual, alimenta o web app)
         painel = [[ts, a.get("ticker"), a.get("option_ticker"), a["nivel"], a.get("moneyness"), a.get("dte"),
-                   f"{a['delta']:.4f}" if a.get("delta") is not None else "",
-                   f"{a['poe']:.2f}" if a.get("poe") is not None else "",
+                   a.get("delta"), a.get("poe"),
                    a.get("pl_value"), a.get("analise"), a.get("acao_sugerida")] for a in alerts]
         try:
             sheets_client.replace_tab(config.TAB_PAINEL_ESCUDO, config.PAINEL_ESCUDO_HEADER, painel)
@@ -253,9 +252,7 @@ def _run_escudo(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
             log.error("ESCUDO", "Falha ao gravar PAINEL_ESCUDO", {"erro": str(exc)})
         if alerts:
             hist = [[ts, a["option_ticker"], a["ticker"], a["id_strategy"], a["nivel"], a["moneyness"], a["dte"],
-                     f"{a['delta']:.4f}" if a.get("delta") is not None else "",
-                     f"{a['poe']:.2f}" if a.get("poe") is not None else "",
-                     f"{a['buyback_mult']:.2f}" if a.get("buyback_mult") is not None else "",
+                     a.get("delta"), a.get("poe"), a.get("buyback_mult"),
                      a.get("pl_value"), a["motivo"], a["acao_sugerida"]] for a in alerts]
             sheets_client.append_rows(config.TAB_HIST_ESCUDO, hist, header=_ESCUDO_HIST_HEADER)
             log.info("ESCUDO", f"{len(hist)} linha(s) em {config.TAB_HIST_ESCUDO} + painel atualizado")
@@ -308,8 +305,7 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
     ts = _now_str(tz)
     if not config.RUNTIME.dry_run:
         painel = [[ts, o.get("ticker"), o.get("option_ticker"), o.get("strike"), o.get("spot"),
-                   f"{o['dist_pct']:.2f}" if o.get("dist_pct") is not None else "",
-                   o.get("iv_rank"), o.get("dte"), o.get("analise")] for o in opps]
+                   o.get("dist_pct"), o.get("iv_rank"), o.get("dte"), o.get("analise")] for o in opps]
         try:
             sheets_client.replace_tab(config.TAB_PAINEL_RADAR, config.PAINEL_RADAR_HEADER, painel)
         except Exception as exc:
