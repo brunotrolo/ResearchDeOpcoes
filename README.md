@@ -8,14 +8,52 @@ Motor quantitativo de análise de opções da **B3**, com dupla função:
 - 🎯 **Radar** — prospecção de prêmios: venda de PUT com IV Rank alto, OTM com
   margem, na janela de DTE certa e líquida.
 
-Arquitetura **"Cérebro Local, Painel na Nuvem"**: o motor Python roda no
-notebook de casa (via Windows Task Scheduler, de hora em hora no pregão), lê o
-painel no **Google Sheets**, consulta o **relógio de ponto** na OpLab e dispara
-**alertas por e-mail**. Arquitetura detalhada em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+O motor lê o painel no **Google Sheets**, consulta o **relógio de ponto** na
+OpLab e dispara **alertas por e-mail**. Roda de hora em hora no pregão.
+Arquitetura detalhada em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+
+Há **dois jeitos de rodar**: na **nuvem do GitHub** (recomendado, sem depender
+de PC ligado) ou **local no Windows**.
 
 ---
 
-## 🚀 Passo a passo completo (Windows)
+## ☁️ Rodar na nuvem (GitHub Actions) — recomendado, sem Dell
+
+O motor roda sozinho na infraestrutura do GitHub, de hora em hora durante o
+pregão. Você não precisa de PC ligado e controla tudo pelo site do GitHub
+(que abre no celular). Os segredos ficam **criptografados** no GitHub.
+
+### Passo 1 — Cadastrar os segredos
+No GitHub, vá em **Settings → Secrets and variables → Actions →
+New repository secret** e cadastre **6 segredos** (um por vez):
+
+| Nome do segredo | Valor |
+|---|---|
+| `OPLAB_TOKEN` | seu token da OpLab |
+| `SPREADSHEET_ID` | `1zuYr3lTOSsVJzvrBJezZ5hFMIM3jpt2jDfR8uCapKds` |
+| `GOOGLE_CREDENTIALS_JSON` | **todo o conteúdo** do `credenciais.json` (abra no Bloco de Notas, Ctrl+A, Ctrl+C, cole) |
+| `EMAIL_USER` | seu_email@gmail.com |
+| `EMAIL_APP_PASSWORD` | a senha de app de 16 letras do Gmail |
+| `ALERT_RECIPIENTS` | brunotrolo@gmail.com |
+
+### Passo 2 — Testar (sem enviar nada)
+Aba **Actions** → workflow **"Motor (Escudo + Radar)"** → **Run workflow** →
+deixe **"Modo teste?"** marcado → **Run**. Veja os logs do run (ele lê tudo,
+mas **não** envia e-mail nem grava). Confira também a aba **LOGS** da planilha.
+
+### Passo 3 — Deixar no ar
+Pronto: as execuções **agendadas** (10h–18h, seg–sex) já rodam pra valer
+automaticamente. Para um teste real manual, rode pelo **Run workflow** com
+**"Modo teste?"** desmarcado.
+
+> 🔐 Depois que estiver rodando, **gere uma chave nova** do Service Account e um
+> **token novo** na OpLab (eles passaram pelo chat) e atualize os segredos.
+
+---
+
+---
+
+## 💻 Alternativa: rodar local (Windows)
 
 ### Passo 1 — Pré-requisitos
 - **Python 3.11+** ([python.org](https://www.python.org/downloads/) — marque *"Add Python to PATH"* na instalação).

@@ -1,0 +1,83 @@
+name: Motor (Escudo + Radar)
+
+# Roda o motor na nuvem do GitHub — sem depender do Dell.
+#   - schedule: de hora em hora, ~10h-18h BRT (UTC-3), seg-sex. O próprio
+#     motor consulta a OpLab (/market/status) e encerra se o mercado estiver
+#     fechado, então execuções fora do pregão são baratas (no-op).
+#   - workflow_dispatch: permite rodar manualmente (pelo site do GitHub, que
+#     abre no celular), com a opção de modo TESTE (dry-run).
+#
+# Segredos necessários (Settings > Secrets and variables > Actions):
+#   OPLAB_TOKEN, SPREADSHEET_ID, GOOGLE_CREDENTIALS_JSON (conteúdo do JSON),
+#   EMAIL_USER, EMAIL_APP_PASSWORD, ALERT_RECIPIENTS
+
+on:
+  schedule:
+    - cron: "0 13-21 * * 1-5"   # 10:00–18:00 BRT, seg–sex
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Modo teste? (não envia e-mail nem grava na planilha)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: motor          # evita execuções sobrepostas (substitui o lock-file)
+  cancel-in-progress: false
+
+jobs:
+  rodar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Persiste o estado (dedupe de alertas) entre execuções, já que cada run
+      # do Actions começa "do zero". restore-keys pega o estado mais recente.
+      - name: Restaurar estado
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: motor-state-${{ github.run_id }}
+          restore-keys: motor-state-
+
+      - name: Escrever credenciais.json a partir do segredo
+        run: printf '%s' "$GOOGLE_CREDENTIALS_JSON" > credenciais.json
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+
+      - name: Rodar o motor
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          OPLAB_TOKEN: ${{ secrets.OPLAB_TOKEN }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          ALERT_RECIPIENTS: ${{ secrets.ALERT_RECIPIENTS }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_USER }}
+          GOOGLE_CREDENTIALS_FILE: credenciais.json
+          MARKET_TZ: America/Sao_Paulo
+          # Nas execuções agendadas roda "pra valer"; no dispatch manual usa a opção.
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          mkdir -p state logs
+          python main.py
+
+      - name: Salvar estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: motor-state-${{ github.run_id }}
+
+      - name: Remover credenciais do runner
+        if: always()
+        run: rm -f credenciais.json
