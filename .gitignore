@@ -1,0 +1,30 @@
+# === Segredos / credenciais — NUNCA versionar ===
+.env
+credenciais.json
+*.pem
+*.key
+service_account*.json
+
+# === Estado / runtime ===
+state/
+logs/
+*.log
+*.lock
+.last_run.json
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# === SO ===
+Thumbs.db
+desktop.ini
+.DS_Store
