@@ -98,17 +98,21 @@ def _mc_posicao(sim, vol_map, trend_map, ticker, option_type, spot, strike, dte)
     tipo = option_type or "PUT"
     trend = (trend_map or {}).get(t)
     drift_tend = (trend * sig) if (trend in (1, -1) and sig) else None
-    info = montecarlo.poe_resumo(sim, spot, strike, dte, iv, real, tipo=tipo)
-    info.update(montecarlo.toque_resumo(sim, spot, strike, dte, iv, real,
-                                        tipo=tipo, drift_tendencia=drift_tend))
-    cen = sim.cenarios_preco(spot, sig, dte)
-    if cen:
-        info["cenarios"] = cen
+    full = montecarlo.simular_completo(sim, spot, strike, dte, iv, real,
+                                       tipo=tipo, drift_tendencia=drift_tend)
+    # Campos planos consumidos a jusante (gate, cenários, tendência) + o dossiê
+    # completo da simulação sob "mc_audit" (para a auditoria na aba LOGS).
+    info = {k: full.get(k) for k in ("poe_mc_iv", "poe_mc_real", "poe_mc_gate",
+                                     "toque_iv", "toque_real", "toque_gate", "toque_tendencia")}
+    if full.get("cenarios"):
+        info["cenarios"] = full["cenarios"]
+    info["mc_audit"] = full
     return info
 
 
 def _classify(row: dict, cfg: config.EscudoCfg, today: date,
-              sim=None, vol_map: dict | None = None, trend_map: dict | None = None) -> dict | None:
+              sim=None, vol_map: dict | None = None, trend_map: dict | None = None,
+              mc_sink: list | None = None) -> dict | None:
     moneyness = parsing.to_upper(row.get("moneyness"))
     delta = row.get("delta")
     abs_delta = abs(delta) if delta is not None else None
@@ -209,6 +213,16 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date,
         nivel = "AVISO"
         motivos.append(f"DTE_PROXIMO({dte}d)")
 
+    # Auditoria Monte Carlo: registra a simulação de TODA posição (inclusive as
+    # saudáveis/OK — é onde se confirma que o toque é mesmo baixo), com o nível
+    # resultante, para a aba LOGS. Independe de a posição virar alerta.
+    if mc_sink is not None and mc.get("mc_audit"):
+        rec = dict(mc["mc_audit"])
+        rec.update({"ticker": row.get("ticker"), "option_ticker": row.get("option_ticker"),
+                    "moneyness": moneyness, "nivel": nivel,
+                    "motivo": "+".join(motivos) if motivos else ""})
+        mc_sink.append(rec)
+
     if nivel == "OK":
         return None
 
@@ -243,7 +257,7 @@ def _classify(row: dict, cfg: config.EscudoCfg, today: date,
         "motivo": "+".join(motivos),
         "acao_sugerida": _acao(moneyness, nivel, toque_gate, cfg),
     }
-    out.update(mc)   # poe_mc_*, toque_*, cenarios
+    out.update({k: v for k, v in mc.items() if k != "mc_audit"})   # poe_mc_*, toque_*, cenarios
     return out
 
 
@@ -263,14 +277,16 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None = None,
-            sim=None, vol_map: dict | None = None, trend_map: dict | None = None) -> list[dict]:
+            sim=None, vol_map: dict | None = None, trend_map: dict | None = None,
+            mc_audit: list | None = None) -> list[dict]:
     """Analisa a PAINEL_ATIVAS e devolve a lista de alertas (todos os níveis).
 
     Se `sim` (Monte Carlo) + `vol_map` forem passados, o Escudo fica PREDITIVO:
     calcula a probabilidade de TOQUE (uma perna OTM virar ATM/ITM antes de
     vencer) e a usa como gatilho — surfando posições saudáveis que estão prestes
     a dar ruim. `trend_map` (ticker → ±1) adiciona o cenário de continuação da
-    tendência."""
+    tendência. Se `mc_audit` (lista) for passado, recebe o dossiê COMPLETO da
+    simulação de cada posição (para a auditoria Monte Carlo na aba LOGS)."""
     cfg = cfg or config.ESCUDO
     if df_ativas is None or df_ativas.empty:
         return []
@@ -285,7 +301,8 @@ def analyze(df_ativas: pd.DataFrame, today: date, cfg: config.EscudoCfg | None =
     alerts: list[dict] = []
     for _, row in norm.iterrows():
         record = {k: (None if (isinstance(v, float) and pd.isna(v)) else v) for k, v in row.items()}
-        result = _classify(record, cfg, today, sim=sim, vol_map=vol_map, trend_map=trend_map)
+        result = _classify(record, cfg, today, sim=sim, vol_map=vol_map,
+                           trend_map=trend_map, mc_sink=mc_audit)
         if result is not None:
             result["analise"] = analise(result)
             alerts.append(result)

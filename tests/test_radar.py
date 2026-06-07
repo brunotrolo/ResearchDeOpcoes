@@ -206,6 +206,26 @@ def test_scan_scanner_premio_real_e_trava():
     assert audit["premios_estimados"] == 0
 
 
+def test_scan_scanner_anexa_mc_audit():
+    """Com Monte Carlo + vol do ativo, cada oportunidade carrega o dossiê COMPLETO
+    da simulação (mc_audit) — entradas, saídas e validação fechada — para a
+    auditoria SERVICE=MONTE_CARLO na aba LOGS."""
+    from app import montecarlo
+    scanner = pd.DataFrame([
+        _scan_full(OPTION_TICKER="VALEX70", TICKER="VALE3", STRIKE="70,00", CLOSE="1,00"),
+        _scan_full(OPTION_TICKER="VALEX68", TICKER="VALE3", STRIKE="68,00", CLOSE="0,70"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    sim = montecarlo.MonteCarloSimulator(n=5000, seed=42)
+    vol_map = {"VALE3": {"iv": 0.35, "real": 0.30}}
+    opps = radar.scan_scanner(scanner, cfg=cfg, mc=sim, vol_map=vol_map, poe_max=0.99)
+    assert opps
+    a = opps[0].get("mc_audit")
+    assert a and a["poe_mc_gate"] is not None and a["toque_gate"] is not None
+    assert a["n_cenarios"] == 5000 and a["seed"] == 42
+    assert a["erro_vs_fechada"] is not None     # validação fechada presente
+
+
 def test_scan_scanner_dte_fora_da_janela_reporta_dtes():
     """Se o scanner só tem DTE 10 e a janela é 21-45, zera e reporta os DTEs."""
     scanner = pd.DataFrame([

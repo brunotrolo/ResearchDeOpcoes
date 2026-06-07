@@ -104,6 +104,24 @@ Ambas usam vol **implícita** e **realizada** (GARCH/STDV), com gate = a maior
 (`POE_MAXIMA`) do Radar vale sempre, com ou sem Monte Carlo (cai para a POE da
 planilha quando o MC está off).
 
+### Auditoria Monte Carlo (aba LOGS, `SERVICE=MONTE_CARLO`)
+Cada simulação que decide algo vira **uma linha** na aba LOGS — **toda** posição
+do Escudo (inclusive as saudáveis/OK, onde se prova que o toque é mesmo baixo) e
+**toda** oportunidade recomendada do Radar. `montecarlo.simular_completo` monta um
+dossiê **reprodutível** (mesmas entradas + `seed` ⇒ mesma saída):
+- **entradas**: `spot`, `strike`, `DTE`, `σ_iv`, `σ_real`, `σ_gate`, `drift`,
+  `n_cenarios`, `seed`;
+- **saídas**: PoE (`iv`/`real`/`gate`), Toque (`iv`/`real`/`gate`/`tendência`),
+  cenários `P5/P50/P95`;
+- **validação fechada**: `poe_fechada_iv` = `N(-d2)` e `erro_vs_fechada`
+  (distância MC↔fórmula; deve ser ≈0 — mede a convergência da simulação);
+- **2ª opinião** (`AUDIT_VERBOSE`): `monte_carlo_engine` re-simula por
+  **trajetória** (risco, drift 0) ou **terminal** (oportunidade, Selic) como
+  motor independente, anexando `toque_sim`/`preço_mínimo_médio` (ou terminal).
+
+O resumo do bloco reporta o **erro médio/máximo MC↔fechada** do ciclo — um
+termômetro de que o Monte Carlo está calibrado.
+
 ## Módulo 2 — Radar (prospecção de PUTs)
 
 ### Fonte das oportunidades (`RADAR_FONTE`)
