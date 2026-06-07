@@ -65,24 +65,43 @@ def scan(
     df_volumes: pd.DataFrame | None = None,
     df_dados_ativos: pd.DataFrame | None = None,
     cfg: config.RadarCfg | None = None,
+    audit: dict | None = None,
 ) -> list[dict]:
-    """Aplica filtros e devolve as Top-N oportunidades de venda de PUT."""
+    """Aplica filtros e devolve as Top-N oportunidades de venda de PUT.
+
+    Se `audit` (dict) for passado, é preenchido com o FUNIL (quantas opções
+    sobreviveram a cada filtro) para registro na auditoria.
+    """
     cfg = cfg or config.RADAR
     if df_lucros is None or df_lucros.empty:
+        if audit is not None:
+            audit.update({"total": 0})
         return []
 
     df = _normalize(df_lucros)
 
-    mask = (
-        (df["category"] == cfg.option_type.upper())
-        & (df["iv_rank"] >= cfg.iv_rank_min)
-        & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
-        & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
-        & (df["dte"] >= cfg.dte_min)            # janela de DTE (sweet spot)
-        & (df["dte"] <= cfg.dte_max)
-    )
+    # Máscaras cumulativas, para registrar o funil estágio a estágio.
+    m_put = df["category"] == cfg.option_type.upper()
+    m_iv = m_put & (df["iv_rank"] >= cfg.iv_rank_min)
+    m_ratio = m_iv & (df["spot_strike_ratio"] >= cfg.spot_strike_ratio_min)
+    m_vol = m_ratio & (df["volume_fin"].fillna(0) >= cfg.min_option_volume_fin)
+    m_dte = m_vol & (df["dte"] >= cfg.dte_min) & (df["dte"] <= cfg.dte_max)
+    mask = m_dte
     if cfg.require_trend_up:
-        mask &= (df["m9m21_trend"] == 1)
+        mask = mask & (df["m9m21_trend"] == 1)
+
+    if audit is not None:
+        audit.update({
+            "total": int(len(df)),
+            "put": int(m_put.sum()),
+            "iv_rank_ok": int(m_iv.sum()),
+            "ratio_ok": int(m_ratio.sum()),
+            "volume_ok": int(m_vol.sum()),
+            "dte_ok": int(m_dte.sum()),
+            "apos_tendencia": int(mask.sum()),
+            "filtros": {"iv_rank_min": cfg.iv_rank_min, "ratio_min": cfg.spot_strike_ratio_min,
+                        "dte_min": cfg.dte_min, "dte_max": cfg.dte_max},
+        })
 
     df = df[mask].copy()
 
@@ -108,7 +127,12 @@ def scan(
         if allowed:
             df = df[df["ticker"].isin(allowed)]
 
+    if audit is not None:
+        audit["apos_filtros"] = int(len(df))
+
     if df.empty:
+        if audit is not None:
+            audit["final"] = 0
         return []
 
     df = df.sort_values(
@@ -116,6 +140,8 @@ def scan(
     ).head(cfg.top_n)
 
     records = [_to_record(r) for _, r in df.iterrows()]
+    if audit is not None:
+        audit["final"] = len(records)
 
     # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
     # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).

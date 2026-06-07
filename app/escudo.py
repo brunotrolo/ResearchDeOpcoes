@@ -216,8 +216,12 @@ def _correl_map(df_correl: pd.DataFrame | None) -> dict[str, float]:
 
 
 def analyze_portfolio(df_ativas: pd.DataFrame, df_correl: pd.DataFrame | None = None,
-                      cfg: config.EscudoCfg | None = None) -> list[dict]:
-    """Alertas de RISCO DE CARTEIRA: concentração setorial (HHI) e exposição ao IBOV."""
+                      cfg: config.EscudoCfg | None = None, audit: dict | None = None) -> list[dict]:
+    """Alertas de RISCO DE CARTEIRA: concentração setorial (HHI) e exposição ao IBOV.
+
+    Se `audit` (dict) for passado, é preenchido com os valores calculados
+    (hhi, exposicao_ibov, nº de pernas) para registro na auditoria.
+    """
     cfg = cfg or config.ESCUDO
     if df_ativas is None or df_ativas.empty:
         return []
@@ -240,6 +244,17 @@ def analyze_portfolio(df_ativas: pd.DataFrame, df_correl: pd.DataFrame | None = 
     alerts: list[dict] = []
 
     hhi = risk_metrics.hhi_setorial(setores, pesos)
+    correl_map = _correl_map(df_correl)
+    exp = risk_metrics.exposicao_ibov(tickers, pesos, correl_map, cfg.ibov_correl_threshold)
+    if audit is not None:
+        audit.update({
+            "n_pernas_vendidas": int(len(norm)),
+            "hhi": round(hhi, 4) if hhi is not None else None,
+            "hhi_max": cfg.hhi_max,
+            "exposicao_ibov": round(exp, 4) if exp is not None else None,
+            "ibov_exposure_max": cfg.ibov_exposure_max,
+        })
+
     if hhi is not None and hhi > cfg.hhi_max:
         alerts.append(_portfolio_alert(
             "PORTFOLIO_HHI", f"HHI_SETORIAL({hhi:.2f})", "ALERTA",
@@ -247,8 +262,6 @@ def analyze_portfolio(df_ativas: pd.DataFrame, df_correl: pd.DataFrame | None = 
             "Diversificar setores; evitar novas posições no setor dominante",
             {"hhi": round(hhi, 4)}))
 
-    correl_map = _correl_map(df_correl)
-    exp = risk_metrics.exposicao_ibov(tickers, pesos, correl_map, cfg.ibov_correl_threshold)
     if exp is not None and exp > cfg.ibov_exposure_max:
         alerts.append(_portfolio_alert(
             "PORTFOLIO_IBOV", f"EXPOSICAO_IBOV({exp*100:.0f}%)", "ALERTA",

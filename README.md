@@ -122,6 +122,33 @@ Cria duas tarefas no **Agendador de Tarefas**: horária (10h–17h, seg–sex, c
 
 ---
 
+## 🔭 Observabilidade & Auditoria
+
+**Auditoria completa (aba LOGS):** com `AUDIT_VERBOSE=true` (padrão), cada ciclo
+registra TUDO — início/fim, resposta da OpLab, cada leitura de aba (linhas +
+colunas), as métricas de carteira calculadas (HHI, exposição IBOV), o **funil**
+de filtros do Radar (quantas opções sobraram em cada etapa), os alertas e
+oportunidades detalhados e o resultado dos e-mails. O detalhe item-a-item fica
+nas abas `ESCUDO_HISTORICO` / `RADAR_HISTORICO`.
+
+**Heartbeat (aba MONITOR):** a cada execução o motor sobrescreve 1 linha com
+status, mercado, duração, nº de alertas/oportunidades e o link da execução no
+GitHub. É o "sinal de vida".
+
+**Painel de status + vigia (Apps Script):** [`docs/monitor.gs`](docs/monitor.gs)
+é um Web App que mostra uma página 🟢/🟡/🔴 (abre no celular) lendo o heartbeat,
+e um **dead-man's switch**: um gatilho de tempo que te manda e-mail se o motor
+**não bater ponto durante o pregão** (ou seja, parou). Instruções de deploy no
+topo do arquivo.
+
+**Testes (sem depender do mercado):** 30 testes cobrem parser, Escudo (por perna
++ carteira), Radar, métricas de risco, o relógio de ponto e o **orquestrador
+inteiro** (mercado fechado, OpLab fora do ar, alerta crítico, oportunidade) com
+as dependências mockadas. Rode quando quiser:
+```bash
+python -m pytest -q
+```
+
 ## Uso no dia a dia
 ```powershell
 .venv\Scripts\python.exe main.py            # rodar agora

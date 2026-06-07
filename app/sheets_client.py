@@ -88,6 +88,22 @@ def append_rows(
     )
 
 
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def upsert_status_row(tab_title: str, header: Sequence[str], row: Sequence) -> None:
+    """Escreve `header` na linha 1 e `row` na linha 2, SOBRESCREVENDO (a aba
+    mantém só o último estado). Usado pelo heartbeat/MONITOR. Cria a aba se faltar."""
+    ss = _spreadsheet()
+    try:
+        ws = ss.worksheet(tab_title)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=tab_title, rows=10, cols=max(len(header), 8))
+    ws.update(
+        values=[[_cell(c) for c in header], [_cell(c) for c in row]],
+        range_name="A1",
+        value_input_option="USER_ENTERED",
+    )
+
+
 def _cell(value) -> str:
     return "" if value is None else str(value)
 
