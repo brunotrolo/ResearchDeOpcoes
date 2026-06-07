@@ -19,6 +19,7 @@ def _rad_full() -> dict:
     return {"ticker": "USIM5", "option_ticker": "USIMS11", "expiry_fmt": "17/07/2026", "dte": 30,
             "strike": 11.04, "spot": 11.46, "dist_pct": 3.8, "premio": 0.62, "premio_fonte": "CLOSE",
             "iv_rank": 88, "profit_rate": 0.056, "poe_mc_gate": 0.44, "volume_fin": 82110,
+            "poe_mc_tendencia": 0.51, "trend_label": "ALTA", "trend_score": 3,
             "motivo": "x", "analise": "y", "toque_gate": 0.83,
             "trava": {"sell_opt": "USIMS11", "sell_strike": 11.04, "sell_premio": 0.62,
                       "buy_opt": "USIMS105", "buy_strike": 10.54, "buy_premio": 0.43,

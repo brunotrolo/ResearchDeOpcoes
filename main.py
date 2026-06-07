@@ -265,7 +265,9 @@ def _rad_panel_row(ts: str, o: dict) -> list:
         "EXPIRY": o.get("expiry_fmt"), "DTE": o.get("dte"), "STRIKE": o.get("strike"),
         "SPOT": o.get("spot"), "DIST_PCT": o.get("dist_pct"), "PREMIO": o.get("premio"),
         "PREMIO_FONTE": fonte, "IV_RANK": o.get("iv_rank"), "TAXA_RETORNO": o.get("profit_rate"),
-        "POE_MC": o.get("poe_mc_gate"), "VOLUME_FIN": o.get("volume_fin"),
+        "POE_MC": o.get("poe_mc_gate"), "POE_TENDENCIA": o.get("poe_mc_tendencia"),
+        "TREND_LABEL": o.get("trend_label"), "TREND_SCORE": o.get("trend_score"),
+        "VOLUME_FIN": o.get("volume_fin"),
         "TRAVA_VENDE_OPCAO": tr.get("sell_opt"), "TRAVA_VENDE_STRIKE": tr.get("sell_strike"),
         "TRAVA_VENDE_PREMIO": tr.get("sell_premio"), "TRAVA_COMPRA_OPCAO": tr.get("buy_opt"),
         "TRAVA_COMPRA_STRIKE": tr.get("buy_strike"), "TRAVA_COMPRA_PREMIO": tr.get("buy_premio"),
@@ -554,6 +556,9 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
                           mc=sim, vol_map=vmap, poe_max=poe_max, df_scanner=df_scanner)
     _log_radar_funil(log, funil)
     summary["radar_opps"] = len(opps)
+    # Quantas entradas o gate de tendência ocultou (ticker baixista) — vai ao
+    # heartbeat/notes p/ o web app mostrar a nota de transparência.
+    summary["radar_trend_bloqueadas"] = int(funil.get("tendencia_bloqueadas", 0) or 0)
     # Auditoria detalhada: uma linha por oportunidade, com prêmio, fonte e Trava.
     for o in opps:
         _log_radar_opp(log, o)
@@ -677,8 +682,13 @@ def run() -> int:
         log.info("RUN", "Fim do ciclo", {"status": status_final, "duracao_s": round(dur, 1), **summary})
         # Grava os LOGS ANTES do heartbeat, para o heartbeat poder sinalizar a falha.
         logs_ok = log.flush()
-        _write_heartbeat(log, tz, summary, status_final, dur,
-                         notes="" if logs_ok else "FALHA AO GRAVAR LOGS — auditoria incompleta")
+        notas = []
+        if not logs_ok:
+            notas.append("FALHA AO GRAVAR LOGS — auditoria incompleta")
+        nb = summary.get("radar_trend_bloqueadas")
+        if nb:
+            notas.append(f"{nb} ideia(s) ocultada(s) por tendência de baixa")
+        _write_heartbeat(log, tz, summary, status_final, dur, notes=" · ".join(notas))
 
     return rc
 

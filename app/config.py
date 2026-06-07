@@ -150,6 +150,7 @@ DEFAULT_CONFIG = [
     ["RADAR_MAX_POR_ATIVO", "2", "Maximo de oportunidades por ativo-mae (diversificacao)"],
     ["RADAR_EXIGIR_TENDENCIA_ALTA", "FALSE", "So recomenda se a acao estiver em alta M9>M21 (TRUE/FALSE)"],
     ["RADAR_EVITAR_TENDENCIA_BAIXA", "TRUE", "Descarta venda de PUT/Trava em acao em baixa M9<M21 (estrategia e altista) (TRUE/FALSE)"],
+    ["RADAR_TREND_GATE", "medio", "Bloqueio de entrada em ticker baixista (curto/medio/M9M21): off / medio / estrito"],
     ["RADAR_USAR_TRAVA", "TRUE", "Montar Trava de Alta com PUT (risco limitado) em vez de PUT a seco (TRUE/FALSE)"],
     ["RADAR_TRAVA_LARGURA_PCT", "5", "Largura da trava: PUT comprada ~N% abaixo do strike vendido (%)"],
     # --- Escudo (gatilhos de defesa) ---
@@ -176,6 +177,7 @@ PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "SIDE", "TIPO", "NIV
                         "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO", "TOQUE"]
 PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STRIKE", "SPOT",
                        "DIST_PCT", "PREMIO", "PREMIO_FONTE", "IV_RANK", "TAXA_RETORNO", "POE_MC",
+                       "POE_TENDENCIA", "TREND_LABEL", "TREND_SCORE",
                        "VOLUME_FIN", "TRAVA_VENDE_OPCAO", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
                        "TRAVA_COMPRA_OPCAO", "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
                        "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE", "TOQUE"]
@@ -369,6 +371,11 @@ class RadarCfg:
     # Padrão TRUE: venda de PUT / Trava de Alta são estratégias ALTISTAS — não faz
     # sentido vendê-las num ativo caindo. Aceita neutro (0) e alta (1); só corta a baixa.
     evitar_tendencia_baixa: bool = _env_bool("RADAR_EVITAR_TENDENCIA_BAIXA", True)
+    # Gate de tendência multi-horizonte para NOVAS entradas (curto/médio/M9M21):
+    # "off" = legado (só barra M9<M21); "medio" (padrão) = bloqueia BAIXA, REPIQUE
+    # em baixa e M9<M21; "estrito" = só passa ALTA confirmada. Vender PUT em ação
+    # caindo é apostar contra a maré — por isso o padrão já bloqueia de fato.
+    trend_gate: str = _env("RADAR_TREND_GATE", "medio")
     # Diversificação: máximo de oportunidades por ativo-mãe no Top-N (0 = sem limite).
     max_por_ativo: int = _env_int("RADAR_MAX_POR_ATIVO", 2)
     # Restringir ao universo monitorado da aba DADOS_ATIVOS (com HAS_OPTIONS)?
