@@ -21,20 +21,23 @@ Regras gerais:
 ## 🎲 Monte Carlo (probabilidade de exercício)
 | CHAVE | Exemplo | Aceita | O que faz |
 |---|---|---|---|
-| `USAR_MONTECARLO` | `TRUE` | TRUE/FALSE | Liga o filtro de probabilidade de exercício no Radar |
-| `POE_MAXIMA` | `25` | número (%) | PoE **máxima** pra recomendar uma PUT (`35` afrouxa, `10` aperta) |
+| `USAR_MONTECARLO` | `TRUE` | TRUE/FALSE | Liga a simulação Monte Carlo da PoE (vol IV + realizada) |
+| `POE_MAXIMA` | `25` | número (%) | PoE **máxima** pra recomendar uma PUT (`35` afrouxa, `10` aperta). **Vale sempre** — mesmo com o Monte Carlo desligado, usando a POE do scanner |
 | `MC_CENARIOS` | `10000` | inteiro | Nº de simulações (mais = mais preciso, mais lento) |
 | `MC_DRIFT` | `0` | número | Tendência do GBM (`0` = sem viés; `0.05` ≈ juros) |
 
 ## 🎯 Radar (filtros de prospecção)
 | CHAVE | Exemplo | Aceita | O que faz |
 |---|---|---|---|
+| `RADAR_FONTE` | `auto` | scanner / lucros / auto | De onde vêm as oportunidades. `scanner` = prêmio CLOSE real + Trava no mesmo vencimento; `lucros` = aba de maiores lucros (prêmio estimado quando não casa); `auto` = scanner se houver, senão lucros |
 | `RADAR_IV_RANK_MIN` | `50` | número | IV Rank mínimo (pânico / prêmio gordo) |
 | `RADAR_RATIO_MIN` | `1.02` | número | Distância mín. spot/strike (`1.02` = 2% OTM; `1.10` = 10%) |
 | `RADAR_DTE_MIN` | `21` | inteiro | DTE mínimo (dias até o vencimento) |
 | `RADAR_DTE_MAX` | `45` | inteiro | DTE máximo |
 | `RADAR_TOP_N` | `5` | inteiro | Quantas oportunidades no e-mail |
-| `RADAR_EXIGIR_TENDENCIA_ALTA` | `FALSE` | TRUE/FALSE | Só recomenda se a ação estiver em alta (M9 > M21) |
+| `RADAR_MAX_POR_ATIVO` | `2` | inteiro | **Diversificação**: máx. de oportunidades do mesmo ativo-mãe no Top-N |
+| `RADAR_EXIGIR_TENDENCIA_ALTA` | `FALSE` | TRUE/FALSE | Só recomenda se a ação estiver em alta (M9 > M21) — mais restritivo |
+| `RADAR_EVITAR_TENDENCIA_BAIXA` | `FALSE` | TRUE/FALSE | Descarta venda de PUT em ação em **baixa** (M9 < M21). Mais brando que exigir alta: aceita neutro |
 | `RADAR_USAR_TRAVA` | `TRUE` | TRUE/FALSE | Recomenda **Trava de Alta com PUT** (risco limitado) em vez de PUT a seco |
 | `RADAR_TRAVA_LARGURA_PCT` | `5` | número (%) | Largura da trava: compra a PUT de proteção ~N% abaixo do strike vendido |
 
