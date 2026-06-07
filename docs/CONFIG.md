@@ -35,6 +35,8 @@ Regras gerais:
 | `RADAR_DTE_MAX` | `45` | inteiro | DTE máximo |
 | `RADAR_TOP_N` | `5` | inteiro | Quantas oportunidades no e-mail |
 | `RADAR_EXIGIR_TENDENCIA_ALTA` | `FALSE` | TRUE/FALSE | Só recomenda se a ação estiver em alta (M9 > M21) |
+| `RADAR_USAR_TRAVA` | `TRUE` | TRUE/FALSE | Recomenda **Trava de Alta com PUT** (risco limitado) em vez de PUT a seco |
+| `RADAR_TRAVA_LARGURA_PCT` | `5` | número (%) | Largura da trava: compra a PUT de proteção ~N% abaixo do strike vendido |
 
 ## 🛡️ Escudo (gatilhos de defesa)
 | CHAVE | Exemplo | Aceita | O que faz |
