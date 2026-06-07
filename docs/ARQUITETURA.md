@@ -93,6 +93,17 @@ PAINEL_ATIVAS e DADOS_ATIVOS são **pt-BR** (vírgula decimal, ponto de milhar:
 recebe o separador correto por aba (`TabSpec.decimal_sep`), evitando que `1.000`
 vire `1.0`.
 
+## Deploy: nuvem (GitHub Actions) ou local (Windows)
+
+**Nuvem (recomendado, `.github/workflows/motor.yml`):** roda de hora em hora
+(cron 13–21 UTC = 10h–18h BRT, seg–sex) na infraestrutura do GitHub. Segredos
+em GitHub Secrets (token, credenciais JSON, e-mail). O estado de dedupe é
+persistido entre execuções via `actions/cache` (cada run é efêmero). `concurrency`
+evita sobreposição (substitui o lock-file). `workflow_dispatch` permite rodar
+manualmente com modo dry-run. Não depende de PC ligado.
+
+**Local (Windows / Task Scheduler):** veja abaixo.
+
 ## Resiliência (Windows / Task Scheduler)
 
 - **Catch-up pós-reboot:** trigger horário com `-StartWhenAvailable` roda a
