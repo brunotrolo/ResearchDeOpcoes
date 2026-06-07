@@ -53,24 +53,34 @@ Erros de um módulo são capturados e logados (aba LOGS) sem derrubar o outro.
 
 ## Regra do Escudo (perna vendida), por moneyness
 
-Combina 3 sinais — múltiplo de recompra (`LAST_PREMIUM/ENTRY_PRICE`), `|Delta|`
-e perda vs. `MAX_LOSS` (+ DTE) — com severidade crescente:
+`DELTA`, `POE` (prob. de exercício) e `DTE_CALENDAR` são lidos direto da
+PAINEL_ATIVAS. Combina múltiplo de recompra (`LAST_PREMIUM/ENTRY_PRICE`),
+`|Delta|`, perda vs. `MAX_LOSS` e proximidade de vencimento:
 
-| Zona | ALERTA | CRÍTICO (e-mail) |
-|---|---|---|
-| OTM | recompra ≥ 2.0× **ou** \|Δ\| ≥ 0.30 | \|Δ\| ≥ 0.35 **ou** recompra ≥ 3.0× |
-| ATM | baseline + recompra ≥ 1.5× **ou** \|Δ\| ≥ 0.45 | DTE ≤ 15 **ou** perda ≥ 50% do MAX_LOSS |
-| ITM | baseline (sempre) | DTE ≤ 15 **ou** perda ≥ 50% do MAX_LOSS |
+| Zona | AVISO (só log) | ALERTA (e-mail) | CRÍTICO (e-mail) |
+|---|---|---|---|
+| OTM | vence em ≤ 15d (saudável) | recompra ≥ 2.0× **ou** \|Δ\| ≥ 0.30 | \|Δ\| ≥ 0.35 **ou** recompra ≥ 3.0× **ou** perda ≥ 50% |
+| ATM | baseline (gamma alto) | recompra ≥ 1.5× **ou** (DTE ≤ 15 **e** perdendo) | perda ≥ 50% do MAX_LOSS |
+| ITM | — | baseline (sempre) | DTE ≤ 15 **ou** perda ≥ 50% do MAX_LOSS |
 
-Todos os números em `.env` (`ESCUDO_*`). E-mail urgente só em `ALERTA`/`CRÍTICO`;
-`AVISO` fica em LOGS/histórico. Dedupe: 1 alerta/opção/dia, re-dispara se escalar.
+A banda de `|Δ|` atua **só na zona OTM** (early-warning de drift): em ATM/ITM o
+`|Δ|` já é alto por natureza e o que manda é moneyness + DTE + perda. Números em
+`.env` (`ESCUDO_*`). E-mail só em `ALERTA`/`CRÍTICO`; `AVISO` fica em LOGS/histórico.
+Dedupe: 1 alerta/opção/dia, re-dispara se escalar de nível.
 
 ## Filtros do Radar
 
 `CATEGORY == PUT` · `IV_RANK ≥ 50` · `SPOT_STRIKE_RATIO ≥ 1.02` ·
-`VOLUME_FIN > piso` (liquidez) · (opcional) tendência M9M21 = alta ·
-(opcional) universo `DADOS_ATIVOS`. Ranqueia por `PROFIT_RATE` e `IV_RANK`,
-envia Top-N. Parâmetros em `.env` (`RADAR_*`).
+`VOLUME_FIN > piso` (liquidez) · universo monitorado `DADOS_ATIVOS`
+(com `HAS_OPTIONS = TRUE`) · (opcional) tendência M9M21 = alta.
+Ranqueia por `PROFIT_RATE` e `IV_RANK`, envia Top-N. Parâmetros em `.env` (`RADAR_*`).
+
+## Locale numérico por aba
+
+PAINEL_ATIVAS e DADOS_ATIVOS são **pt-BR** (vírgula decimal, ponto de milhar:
+`R$ 1.285,00`, `-0,72`); SELECAO_*/RANKING_* são **US/ISO** (`1.0133`). O parser
+recebe o separador correto por aba (`TabSpec.decimal_sep`), evitando que `1.000`
+vire `1.0`.
 
 ## Resiliência (Windows / Task Scheduler)
 

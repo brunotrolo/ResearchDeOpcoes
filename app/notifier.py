@@ -57,7 +57,7 @@ def send_escudo_alert(alerts: list[dict]) -> bool:
     if not alerts:
         return False
     n_crit = sum(1 for a in alerts if a.get("nivel") == "CRITICO")
-    headers = ["Opção", "Ativo", "Nível", "Moneyness", "DTE", "Δ", "Recompra", "P&L", "Ação"]
+    headers = ["Opção", "Ativo", "Nível", "Moneyness", "DTE", "Δ", "POE", "Recompra", "P&L", "Ação"]
     rows = [
         [
             a.get("option_ticker", ""),
@@ -66,6 +66,7 @@ def send_escudo_alert(alerts: list[dict]) -> bool:
             a.get("moneyness", ""),
             str(a.get("dte", "")),
             f"{a.get('delta'):.2f}" if a.get("delta") is not None else "-",
+            f"{a.get('poe'):.0%}" if a.get("poe") is not None else "-",
             f"{a.get('buyback_mult'):.2f}x" if a.get("buyback_mult") is not None else "-",
             f"R$ {a.get('pl_value'):.0f}" if a.get("pl_value") is not None else "-",
             a.get("acao_sugerida", ""),

@@ -1,10 +1,13 @@
 """Parsing e limpeza de valores vindos das planilhas-espelho.
 
-As abas misturam formatos:
-    - Painel_Ativas: strings formatadas -> "R$ 33.91", "75.98%", "3,000", "-R$ 916.00"
-    - SELECAO_*: floats em string "limpa" -> "1.0133", "81.50"
-Estas funções normalizam tudo para float/int/date de forma tolerante,
-retornando None quando o valor é vazio/ inválido (em vez de quebrar).
+As abas usam DOIS locales numéricos diferentes:
+    - PAINEL_ATIVAS / DADOS_ATIVOS  -> pt-BR: vírgula decimal, ponto de milhar
+        "R$ 33,91" -> 33.91 ; "1.000" -> 1000 ; "-0,72" -> -0.72 ; "75,98%" -> 75.98
+    - SELECAO_* / RANKING_*         -> US/ISO: ponto decimal, vírgula de milhar
+        "1.0133" -> 1.0133 ; "R$ 14,670.00" -> 14670.0 ; "939,000" -> 939000
+Por isso `to_float` recebe o separador decimal da aba (decimal_sep). O chamador
+(frames.num) injeta o locale correto por tabela. Tudo é tolerante: valor
+vazio/ inválido vira None em vez de quebrar.
 """
 from __future__ import annotations
 
@@ -14,19 +17,15 @@ from datetime import date, datetime
 from typing import Optional
 
 _NUMERIC_CLEANER = re.compile(r"[^\d,.\-]")  # remove R$, %, espaços, letras, etc.
+_SENTINELS = {"", "-", "--", "N/A", "n/a", "#N/A", "nan", "None", "null"}
 
 
-def to_float(value) -> Optional[float]:
-    """Converte um valor de planilha para float, tolerante a R$, %, vírgula.
+def to_float(value, decimal_sep: str | None = ".") -> Optional[float]:
+    """Converte um valor de planilha em float, ciente do separador decimal.
 
-    Exemplos:
-        "R$ 33.91"  -> 33.91
-        "75.98%"    -> 75.98     (mantém em unidade de %; não divide por 100)
-        "3,000"     -> 3000.0
-        "-R$ 916.00"-> -916.0
-        "1.0133"    -> 1.0133
-        "(120.00)"  -> -120.0    (parênteses = negativo, padrão contábil)
-        ""/None     -> None
+    decimal_sep=".":  US/ISO (ponto decimal, vírgula = milhar).
+    decimal_sep=",":  pt-BR  (vírgula decimal, ponto = milhar).
+    decimal_sep=None: heurística automática (o ÚLTIMO separador é o decimal).
     """
     if value is None:
         return None
@@ -34,39 +33,39 @@ def to_float(value) -> Optional[float]:
         return None if (isinstance(value, float) and math.isnan(value)) else float(value)
 
     text = str(value).strip()
-    if text == "" or text in {"-", "--", "N/A", "n/a", "#N/A", "nan"}:
+    if text in _SENTINELS:
         return None
 
-    negative = text.startswith("(") and text.endswith(")")
+    negative = text.startswith("(") and text.endswith(")")  # padrão contábil
     text = _NUMERIC_CLEANER.sub("", text)
     if text in {"", "-", ".", ","}:
         return None
 
-    # Heurística de separador: se tem ',' e '.', o último é o decimal.
-    if "," in text and "." in text:
-        if text.rfind(",") > text.rfind("."):
-            text = text.replace(".", "").replace(",", ".")   # 1.234,56 -> 1234.56
-        else:
-            text = text.replace(",", "")                      # 1,234.56 -> 1234.56
-    elif "," in text:
-        # Só vírgula: trata como separador de milhar se houver 3 dígitos após
-        # (ex.: "3,000" -> 3000); caso contrário como decimal ("1,5" -> 1.5).
-        if re.match(r"^-?\d{1,3}(,\d{3})+$", text):
-            text = text.replace(",", "")
-        else:
-            text = text.replace(",", ".")
+    if decimal_sep == ",":
+        text = text.replace(".", "").replace(",", ".")       # pt-BR
+    elif decimal_sep == ".":
+        text = text.replace(",", "")                         # US/ISO
+    else:  # auto: o último separador encontrado é o decimal
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif "," in text:
+            if re.match(r"^-?\d{1,3}(,\d{3})+$", text):
+                text = text.replace(",", "")                 # 3,000 -> 3000
+            else:
+                text = text.replace(",", ".")                # 1,5 -> 1.5
 
     try:
         result = float(text)
     except ValueError:
         return None
-    if negative:
-        result = -abs(result)
-    return result
+    return -abs(result) if negative else result
 
 
-def to_int(value) -> Optional[int]:
-    f = to_float(value)
+def to_int(value, decimal_sep: str | None = ".") -> Optional[int]:
+    f = to_float(value, decimal_sep)
     return int(round(f)) if f is not None else None
 
 
@@ -77,8 +76,8 @@ def to_upper(value) -> str:
 def to_date(value, dayfirst: bool = True) -> Optional[date]:
     """Parse de data tolerante a dd/mm/aaaa, aaaa-mm-dd e variações.
 
-    dayfirst=True cobre o padrão brasileiro (Painel_Ativas: '16/10/2026').
-    A aba SELECAO_OPCOES_MAIORES_LUCROS usa ISO 'aaaa-mm-dd'.
+    dayfirst=True cobre o padrão brasileiro (PAINEL_ATIVAS: '16/10/2026' e
+    'dd/mm/aaaa hh:mm:ss'). A aba SELECAO_* usa ISO 'aaaa-mm-dd'.
     """
     if value is None:
         return None
