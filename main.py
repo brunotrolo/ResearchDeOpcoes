@@ -141,7 +141,7 @@ def _mc_enrich(items: list[dict], vol_map: dict, sim) -> None:
     for it in items:
         vm = vol_map.get(str(it.get("ticker", "")).strip().upper(), {})
         it.update(montecarlo.poe_resumo(sim, it.get("spot"), it.get("strike"), it.get("dte"),
-                                        vm.get("iv"), vm.get("real")))
+                                        vm.get("iv"), vm.get("real"), tipo=it.get("option_type", "PUT")))
 
 
 def _read_config(log: Logbook) -> dict:
