@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from app import (
     config,
     escudo,
+    frames,
     market_gate,
     notifier,
     radar,
@@ -33,6 +34,23 @@ from app import (
     state,
 )
 from app.logbook import Logbook
+
+
+def _read_comentarios(log: Logbook) -> dict:
+    """Lê a aba COMENTARIOS (cria vazia se faltar) -> {CODIGO: comentário}."""
+    try:
+        sheets_client.ensure_tab(config.TAB_COMENTARIOS, config.COMENTARIOS_HEADER)
+        df = sheets_client.read_tab("comentarios")
+    except Exception as exc:
+        log.warn("COMENTARIOS", "Não foi possível ler comentários", {"erro": str(exc)})
+        return {}
+    out: dict = {}
+    for cod, txt in zip(frames.raw(df, "comentarios", "codigo"),
+                        frames.raw(df, "comentarios", "comentario")):
+        cod = str(cod).strip().upper()
+        if cod and str(txt).strip():
+            out[cod] = str(txt).strip()
+    return out
 
 _ESCUDO_HIST_HEADER = [
     "UPDATED_AT", "OPTION_TICKER", "TICKER", "ID_STRATEGY", "NIVEL", "MONEYNESS",
@@ -97,6 +115,12 @@ def _run_escudo(log: Logbook, tz, summary: dict) -> None:
     log.info("ESCUDO", "Métricas de carteira calculadas", port_audit)
     leg_alerts = escudo.analyze(df, today)
     alerts = port_alerts + leg_alerts
+
+    comentarios = _read_comentarios(log)
+    if comentarios:
+        for a in alerts:
+            a["comentario"] = (comentarios.get(str(a.get("option_ticker", "")).strip().upper())
+                               or comentarios.get(str(a.get("ticker", "")).strip().upper()))
 
     por_nivel: dict = {}
     for a in alerts:

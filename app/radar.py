@@ -19,10 +19,19 @@ Saída: Top-N oportunidades (dicts), ranqueadas por taxa de retorno e IV Rank.
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 
 import pandas as pd
 
-from app import config, frames, risk_metrics
+from app import config, frames, parsing, risk_metrics
+
+
+def _fmt_expiry(raw) -> str:
+    """A aba de lucros traz EXPIRY como número serial do Sheets — converte p/ data."""
+    n = parsing.to_float(raw, ",")
+    if n is not None and n > 40000:
+        return (date(1899, 12, 30) + timedelta(days=int(n))).strftime("%d/%m/%Y")
+    return str(raw or "")
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -58,6 +67,47 @@ def _whitelist(df_dados: pd.DataFrame, require_has_options: bool = True) -> set[
             continue
         allowed.add(tkr)
     return allowed
+
+
+def _clean_list(series) -> list:
+    return [None if (isinstance(x, float) and math.isnan(x)) else x for x in series.tolist()]
+
+
+def _underlying_signals(df_dados: pd.DataFrame | None) -> dict[str, dict]:
+    """Sinais por ativo-mãe (tendência, score, IV) de DADOS_ATIVOS — o 'porquê'."""
+    if df_dados is None or df_dados.empty:
+        return {}
+    tickers = [str(t).strip().upper() for t in frames.raw(df_dados, "dados_ativos", "ticker")]
+    cols = {k: _clean_list(frames.num(df_dados, "dados_ativos", k))
+            for k in ("m9m21_trend", "middle_term_trend", "short_term_trend",
+                      "oplab_score", "iv_rank", "correl_ibov")}
+    out: dict[str, dict] = {}
+    for i, t in enumerate(tickers):
+        if t:
+            out[t] = {k: cols[k][i] for k in cols}
+    return out
+
+
+def _motivo_radar(rec: dict) -> str:
+    """Texto curto explicando POR QUE o ativo foi recomendado."""
+    partes = []
+    t = rec.get("m9m21_trend")
+    if t == 1:
+        partes.append("Tendência de ALTA (M9>M21)")
+    elif t == -1:
+        partes.append("Tendência de baixa (M9<M21)")
+    if rec.get("short_term_trend") == 1 and rec.get("middle_term_trend") == 1:
+        partes.append("alta no curto e médio prazo")
+    iv = rec.get("iv_rank")
+    if iv is not None:
+        partes.append(f"IV Rank {iv:.0f} ({'prêmio gordo' if iv >= 70 else 'prêmio ok'})")
+    d = rec.get("dist_pct")
+    if d is not None:
+        partes.append(f"spot {d:+.1f}% do strike (margem)")
+    sc = rec.get("oplab_score")
+    if sc is not None:
+        partes.append(f"Score OpLab {sc:.0f}")
+    return " · ".join(partes) if partes else "—"
 
 
 def scan(
@@ -142,6 +192,15 @@ def scan(
     records = [_to_record(r) for _, r in df.iterrows()]
     if audit is not None:
         audit["final"] = len(records)
+
+    # Enriquece cada oportunidade com distância e sinais do ativo-mãe (o "porquê").
+    sig = _underlying_signals(df_dados_ativos)
+    for rec in records:
+        spot, strike = rec.get("spot"), rec.get("strike")
+        rec["dist_pct"] = ((spot / strike - 1) * 100) if (spot and strike) else None
+        rec["expiry_fmt"] = _fmt_expiry(rec.get("expiry"))
+        rec.update(sig.get(str(rec.get("ticker", "")).strip().upper(), {}))
+        rec["motivo"] = _motivo_radar(rec)
 
     # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
     # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).

@@ -114,6 +114,7 @@ TABS: dict[str, TabSpec] = {
     "m9m21":        TabSpec(_env("TAB_M9M21", "RANKING_TENDENCIA_M9M21"),       _env_int("TAB_M9M21_HEADER_ROW", 1),         _env("TAB_M9M21_DECIMAL", ",")),
     "correl":       TabSpec(_env("TAB_CORREL", "RANKING_CORREL_IBOV"),          _env_int("TAB_CORREL_HEADER_ROW", 1),        _env("TAB_CORREL_DECIMAL", ",")),
     "dados_ativos": TabSpec(_env("TAB_DADOS_ATIVOS", "DADOS_ATIVOS"),           _env_int("TAB_DADOS_ATIVOS_HEADER_ROW", 1), _env("TAB_DADOS_ATIVOS_DECIMAL", ",")),
+    "comentarios":  TabSpec(_env("TAB_COMENTARIOS", "COMENTARIOS"),             _env_int("TAB_COMENTARIOS_HEADER_ROW", 1),  _env("TAB_COMENTARIOS_DECIMAL", ",")),
 }
 
 # Abas de escrita (logs + histórico). Criadas automaticamente se não existirem.
@@ -121,6 +122,8 @@ TAB_LOGS = _env("TAB_LOGS", "LOGS")
 TAB_HIST_ESCUDO = _env("TAB_HIST_ESCUDO", "ESCUDO_HISTORICO")
 TAB_HIST_RADAR = _env("TAB_HIST_RADAR", "RADAR_HISTORICO")
 TAB_MONITOR = _env("TAB_MONITOR", "MONITOR")
+TAB_COMENTARIOS = _env("TAB_COMENTARIOS", "COMENTARIOS")
+COMENTARIOS_HEADER = ["CODIGO", "COMENTARIO", "ATUALIZADO_EM"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
@@ -160,8 +163,10 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "iv": "IV",
         "iv_rank": "IV_RANK",
         "pl_value": "PL_VALUE",
-        "pl_pct": "PL_PCT",
+        "pl_pct": "PL_PCT",                   # fração: -1,66 = -166%
+        "break_even": "BREAK_EVEN",
         "max_gain": "MAX_GAIN",
+        "max_profit_pct": "MAX_PROFIT_PCT",   # fração
         "max_loss": "MAX_LOSS",
         "notional": "NOTIONAL",
         "direction_flag": "DIRECTION_FLAG",  # 1 = perna de crédito (risco)
@@ -212,11 +217,17 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "beta_ibov": "BETA_IBOV",
         "correl_ibov": "CORREL_IBOV",
         "m9m21_trend": "M9_M21_TREND",       # 1 = alta, -1 = baixa
+        "middle_term_trend": "MIDDLE_TERM_TREND",
+        "short_term_trend": "SHORT_TERM_TREND",
         "oplab_score": "OPLAB_SCORE",
     },
     "correl": {
         "ticker": "TICKER",
         "correl_value": "CORREL_VALUE",
+    },
+    "comentarios": {
+        "codigo": "CODIGO",                  # OPTION_TICKER ou TICKER
+        "comentario": "COMENTARIO",
     },
 }
 

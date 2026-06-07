@@ -1,22 +1,30 @@
-"""Notificador (pager) — alertas por e-mail via smtplib.
+"""Notificador (pager) — alertas por e-mail via smtplib, em CARDS por operação.
 
-Dois tipos de alerta:
-    - URGENTE (Escudo): posição/carteira em zona de gatilho (ALERTA/CRÍTICO).
-    - OPORTUNIDADE (Radar): Top-N operações que passaram em todos os filtros.
+    - URGENTE (Escudo): card de cada posição que precisa de ação (ALERTA/CRÍTICO),
+      com todos os dados (spot, strike, prêmios, gregas, P/L, etc.) + comentário.
+    - OPORTUNIDADE (Radar): card de cada PUT recomendada, com os dados + o PORQUÊ
+      (tendência/IV/score do ativo-mãe).
 
-Cada e-mail é multipart: parte TEXTO (legível no celular) + parte HTML (tabela).
-Usa SMTP sobre SSL (Gmail por padrão). Em DRY_RUN, apenas registra e não envia.
+Cada e-mail é multipart: TEXTO (celular) + HTML (cards). Em DRY_RUN não envia.
 """
 from __future__ import annotations
 
+import re
 import smtplib
 import ssl
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo
 
 from app import config
 
+_COR = {"CRITICO": "#dc2626", "ALERTA": "#ea580c", "AVISO": "#ca8a04"}
+_BG = {"CRITICO": "#fef2f2", "ALERTA": "#fff7ed", "AVISO": "#fefce8"}
+_EMOJI = {"CRITICO": "🚨", "ALERTA": "⚠️", "AVISO": "🟡"}
 
+
+# --- envio -----------------------------------------------------------------
 def _send(subject: str, html_body: str, text_body: str = "") -> bool:
     cfg = config.EMAIL
     if config.RUNTIME.dry_run:
@@ -31,7 +39,6 @@ def _send(subject: str, html_body: str, text_body: str = "") -> bool:
     msg["Subject"] = subject
     msg["From"] = cfg.sender or cfg.user
     msg["To"] = ", ".join(cfg.recipients)
-    # Em multipart/alternative o cliente prefere a ÚLTIMA parte: texto antes, HTML depois.
     msg.attach(MIMEText(text_body or _strip(html_body), "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
@@ -43,118 +50,177 @@ def _send(subject: str, html_body: str, text_body: str = "") -> bool:
 
 
 def _strip(html: str) -> str:
-    import re
-    return re.sub(r"<[^>]+>", " ", html)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
 
 
-def _table(rows: list[list[str]], headers: list[str]) -> str:
-    head = "".join(f"<th style='padding:6px 10px;text-align:left'>{h}</th>" for h in headers)
-    body = ""
-    for r in rows:
-        tds = "".join(f"<td style='padding:6px 10px;border-top:1px solid #eee'>{c}</td>" for c in r)
-        body += f"<tr>{tds}</tr>"
+# --- formatadores (pt-BR) --------------------------------------------------
+def _brl(v) -> str:
+    if v is None:
+        return "—"
+    s = f"{abs(v):,.2f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+    return ("-R$ " if v < 0 else "R$ ") + s
+
+
+def _pct(v, dec: int = 2) -> str:
+    return "—" if v is None else f"{v:.{dec}f}".replace(".", ",") + "%"
+
+
+def _num(v, dec: int = 4) -> str:
+    return "—" if v is None else f"{v:.{dec}f}".replace(".", ",")
+
+
+def _intbr(v) -> str:
+    return "—" if v is None else f"{int(v):,}".replace(",", ".")
+
+
+def _wrap(body: str, titulo: str, sub: str, rodape: str) -> str:
     return (
-        "<table style='border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:14px'>"
-        f"<thead style='background:#f3f4f6'><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+        "<div style='font-family:Segoe UI,Arial,sans-serif;max-width:680px;margin:0 auto;background:#f7f7f8;padding:14px'>"
+        f"<h2 style='margin:4px 0'>{titulo}</h2>"
+        f"<p style='color:#555;margin:0 0 12px'>{sub}</p>"
+        f"{body}"
+        f"<p style='color:#999;font-size:12px;margin-top:8px'>{rodape}</p></div>"
     )
 
 
-def _fmt(v, spec: str = "", dash: str = "-") -> str:
-    return format(v, spec) if v is not None else dash
+def _grid(items: list[tuple[str, str]]) -> str:
+    """Grade de métricas (3 colunas), cada célula com rótulo + valor."""
+    cells = ""
+    for i, (label, value) in enumerate(items):
+        cells += (
+            "<td width='33%' style='padding:6px 10px;vertical-align:top'>"
+            f"<div style='font-size:11px;color:#888'>{label}</div>"
+            f"<div style='font-size:15px;font-weight:600;color:#111'>{value}</div></td>"
+        )
+        if i % 3 == 2:
+            cells += "</tr><tr>"
+    return f"<table width='100%' style='border-collapse:collapse'><tr>{cells}</tr></table>"
 
 
+# --- e-mail de teste -------------------------------------------------------
 def send_test_email() -> bool:
-    """E-mail de teste — prova que segredos, SMTP e envio estão OK (homologação)."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
     agora = datetime.now(ZoneInfo(config.RUNTIME.timezone)).strftime("%d/%m/%Y %H:%M:%S")
     subject = "✅ ResearchDeOpcoes — e-mail de teste OK"
     text = (f"Se você recebeu este e-mail, o pager está funcionando.\n\n"
             f"Segredos, SMTP e envio: OK.\nHorário: {agora}\n— motor ResearchDeOpcoes")
-    html = (f"<h2 style='font-family:Segoe UI,Arial'>✅ E-mail de teste OK</h2>"
-            f"<p style='font-family:Segoe UI,Arial'>Se você recebeu este e-mail, o <b>pager está "
-            f"funcionando</b>: segredos, SMTP e envio OK.</p>"
-            f"<p style='font-family:Segoe UI,Arial;color:#666'>Horário: {agora} · motor ResearchDeOpcoes</p>")
+    html = _wrap("<p style='font-size:16px'>O <b>pager está funcionando</b>: segredos, SMTP e envio OK.</p>",
+                 "✅ E-mail de teste OK", f"Horário: {agora}", "motor ResearchDeOpcoes")
     return _send(subject, html, text)
 
 
+# --- ESCUDO ----------------------------------------------------------------
+def _escudo_card(a: dict) -> str:
+    nivel = a.get("nivel", "ALERTA")
+    cor, bg, emoji = _COR.get(nivel, "#555"), _BG.get(nivel, "#fff"), _EMOJI.get(nivel, "")
+
+    if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
+        return (
+            f"<table width='100%' style='border-collapse:collapse;margin:0 0 14px;background:#fff;"
+            f"border:1px solid #e5e7eb;border-left:5px solid {cor}'>"
+            f"<tr style='background:{bg}'><td style='padding:10px 14px'>"
+            f"<b style='font-size:16px'>🛡️ Risco de Carteira</b>"
+            f"<span style='float:right;font-weight:700;color:{cor}'>{emoji} {nivel}</span></td></tr>"
+            f"<tr><td style='padding:10px 14px;color:#111'>{a.get('descricao', a.get('motivo',''))}</td></tr>"
+            f"<tr><td style='padding:8px 14px;background:#f9fafb;border-top:1px solid #eee'>"
+            f"⚠️ <b>Ação:</b> {a.get('acao_sugerida','')}</td></tr></table>")
+
+    side = a.get("side", "")
+    side_lbl = ("V" if side == "VENDA" else "C" if side == "COMPRA" else "") + " " + str(a.get("option_type") or "")
+    plv = _brl(a.get("pl_value")) + " (" + _pct(a.get("pl_pct")) + ")"
+    metrics = [
+        ("Spot", _brl(a.get("spot"))), ("Dist.", _pct(a.get("dist_pct"), 1)), ("Strike", _brl(a.get("strike"))),
+        ("Prêmio médio", _brl(a.get("entry_price"))), ("Prêmio atual", _brl(a.get("last_premium"))),
+        ("Break-even", _brl(a.get("break_even"))),
+        ("Recompra", f"{a.get('buyback_mult'):.2f}x".replace(".", ",") if a.get("buyback_mult") is not None else "—"),
+        ("Delta", _num(a.get("delta"))), ("POE", _pct(a.get("poe") * 100, 0) if a.get("poe") is not None else "—"),
+        ("Ganho máx.", _brl(a.get("max_gain"))), ("Lucro máx.", _pct(a.get("max_profit_pct"))),
+        ("Nocional", _brl(a.get("notional"))),
+    ]
+    coment = ""
+    if a.get("comentario"):
+        coment = (f"<tr><td style='padding:8px 14px;background:#eff6ff;border-top:1px solid #eee'>"
+                  f"📝 <b>Sua nota:</b> {a['comentario']}</td></tr>")
+    return (
+        f"<table width='100%' style='border-collapse:collapse;margin:0 0 14px;background:#fff;"
+        f"border:1px solid #e5e7eb;border-left:5px solid {cor}'>"
+        f"<tr style='background:{bg}'><td style='padding:10px 14px'>"
+        f"<span style='font-size:18px;font-weight:700'>{a.get('ticker','')}</span>"
+        f"<span style='color:#555'> · {side_lbl} · {a.get('moneyness','')}</span>"
+        f"<span style='float:right;font-weight:700;color:{cor}'>{emoji} {nivel}</span>"
+        f"<div style='color:#666;font-size:13px;margin-top:2px'>{a.get('option_ticker','')} · "
+        f"{_intbr(a.get('quantity'))} contratos · {a.get('dte','')}d ({a.get('expiry','')})</div></td></tr>"
+        f"<tr><td style='padding:4px 4px'>{_grid(metrics)}</td></tr>"
+        f"<tr><td style='padding:8px 14px;background:{bg};border-top:1px solid #eee'>"
+        f"<b>L/P aberto:</b> {plv}</td></tr>"
+        f"<tr><td style='padding:8px 14px;background:#f9fafb;border-top:1px solid #eee'>"
+        f"⚠️ <b>Ação:</b> {a.get('acao_sugerida','')}</td></tr>{coment}</table>")
+
+
 def send_escudo_alert(alerts: list[dict]) -> bool:
-    """alerts: lista já filtrada para níveis que merecem e-mail (ALERTA/CRÍTICO)."""
     if not alerts:
         return False
     n_crit = sum(1 for a in alerts if a.get("nivel") == "CRITICO")
-    subject = f"🚨 ESCUDO — {len(alerts)} alerta(s)" + (f" | {n_crit} CRÍTICO(s)" if n_crit else "")
-
-    # --- TEXTO (celular) ---
+    subject = f"🚨 ESCUDO — {len(alerts)} posição(ões) precisam de atenção" + (f" | {n_crit} CRÍTICO(s)" if n_crit else "")
+    cards = "".join(_escudo_card(a) for a in alerts)
+    html = _wrap(cards, "🛡️ Defesa de Posições",
+                 f"{len(alerts)} operação(ões) precisam de ação. (As que estão tranquilas não entram aqui.)",
+                 "Gerado pelo motor ResearchDeOpcoes.")
+    # texto
     linhas = []
     for a in alerts:
-        contexto = a.get("descricao") or a.get("motivo", "")
-        ident = a.get("option_ticker", "") if str(a.get("option_ticker", "")).startswith("PORTFOLIO") else \
-            f"{a.get('option_ticker','')} ({a.get('ticker','')}, {a.get('moneyness','')})"
-        linhas.append(f"[{a.get('nivel')}] {ident}\n    {contexto}\n    → {a.get('acao_sugerida','')}")
-    text_body = "🚨 DEFESA DE POSIÇÕES\n\n" + "\n\n".join(linhas) + \
-        "\n\n— motor ResearchDeOpcoes"
+        if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
+            linhas.append(f"[{a['nivel']}] CARTEIRA — {a.get('descricao','')} → {a.get('acao_sugerida','')}")
+            continue
+        linhas.append(
+            f"[{a['nivel']}] {a.get('ticker','')} {a.get('option_ticker','')} ({a.get('moneyness','')})\n"
+            f"  Strike {_brl(a.get('strike'))} | Spot {_brl(a.get('spot'))} ({_pct(a.get('dist_pct'),1)}) | "
+            f"Prêmio {_brl(a.get('entry_price'))}→{_brl(a.get('last_premium'))} | Δ {_num(a.get('delta'),2)} | "
+            f"L/P {_brl(a.get('pl_value'))} ({_pct(a.get('pl_pct'))})\n  → {a.get('acao_sugerida','')}"
+            + (f"\n  📝 {a['comentario']}" if a.get("comentario") else ""))
+    text = "🚨 DEFESA DE POSIÇÕES\n\n" + "\n\n".join(linhas) + "\n\n— motor ResearchDeOpcoes"
+    return _send(subject, html, text)
 
-    # --- HTML ---
-    headers = ["Opção", "Ativo", "Nível", "Money.", "DTE", "Δ", "POE", "Recompra", "P&L", "Ação"]
-    rows = [[
-        a.get("option_ticker", ""), a.get("ticker", ""), a.get("nivel", ""),
-        a.get("moneyness", ""), _fmt(a.get("dte")),
-        _fmt(a.get("delta"), ".2f"),
-        f"{a.get('poe'):.0%}" if a.get("poe") is not None else "-",
-        f"{a.get('buyback_mult'):.2f}x" if a.get("buyback_mult") is not None else "-",
-        f"R$ {a.get('pl_value'):.0f}" if a.get("pl_value") is not None else "-",
-        a.get("acao_sugerida", ""),
-    ] for a in alerts]
-    html = (
-        "<h2 style='font-family:Segoe UI,Arial'>🚨 Alerta de Defesa de Posições</h2>"
-        f"<p style='font-family:Segoe UI,Arial'>{len(alerts)} item(ns) em zona de atenção/perigo:</p>"
-        f"{_table(rows, headers)}"
-        "<p style='font-family:Segoe UI,Arial;color:#666;font-size:12px'>"
-        "Gerado automaticamente pelo motor ResearchDeOpcoes.</p>"
-    )
-    return _send(subject, html, text_body)
+
+# --- RADAR -----------------------------------------------------------------
+def _radar_card(o: dict) -> str:
+    iv = o.get("iv_rank")
+    metrics = [
+        ("Spot", _brl(o.get("spot"))), ("Strike", _brl(o.get("strike"))),
+        ("Dist. (margem)", _pct(o.get("dist_pct"), 1)),
+        ("IV Rank", _num(iv, 0)), ("Taxa retorno", _pct(o.get("profit_rate"))),
+        ("Vol. financ.", _brl(o.get("volume_fin"))),
+    ]
+    if o.get("contratos_sugeridos") is not None:
+        metrics.append(("Contratos sug.", _intbr(o.get("contratos_sugeridos"))))
+    return (
+        "<table width='100%' style='border-collapse:collapse;margin:0 0 14px;background:#fff;"
+        "border:1px solid #e5e7eb;border-left:5px solid #16a34a'>"
+        "<tr style='background:#f0fdf4'><td style='padding:10px 14px'>"
+        f"<span style='font-size:18px;font-weight:700'>{o.get('ticker','')}</span>"
+        f"<span style='color:#555'> · V PUT</span>"
+        f"<span style='float:right;font-weight:700;color:#16a34a'>IV Rank {_num(iv,0)}</span>"
+        f"<div style='color:#666;font-size:13px;margin-top:2px'>{o.get('option_ticker','')} · "
+        f"{o.get('dte','')}d ({o.get('expiry_fmt','')})</div></td></tr>"
+        f"<tr><td style='padding:4px 4px'>{_grid(metrics)}</td></tr>"
+        f"<tr><td style='padding:8px 14px;background:#f0fdf4;border-top:1px solid #eee'>"
+        f"💡 <b>Por quê:</b> {o.get('motivo','—')}</td></tr></table>")
 
 
 def send_radar_opportunities(opps: list[dict]) -> bool:
     if not opps:
         return False
-    subject = f"📡 RADAR — Top {len(opps)} oportunidade(s) de PUT (prêmio gordo)"
-
-    # --- TEXTO (celular) ---
+    subject = f"📡 RADAR — {len(opps)} oportunidade(s) de venda de PUT"
+    cards = "".join(_radar_card(o) for o in opps)
+    html = _wrap(cards, "📡 Oportunidades de Venda de PUT",
+                 f"Top {len(opps)} (IV alto, OTM com margem, DTE no alvo, líquidas).",
+                 "Gerado pelo motor ResearchDeOpcoes. Não é recomendação de investimento.")
     linhas = []
     for i, o in enumerate(opps, 1):
-        sizing = f" | contratos sug.: {o['contratos_sugeridos']}" if o.get("contratos_sugeridos") else ""
         linhas.append(
-            f"{i}. {o.get('option_ticker','')} ({o.get('ticker','')})\n"
-            f"    Strike R$ {_fmt(o.get('strike'), '.2f')} | Spot R$ {_fmt(o.get('spot'), '.2f')} "
-            f"| IV Rank {_fmt(o.get('iv_rank'), '.0f')} | DTE {_fmt(o.get('dte'))}"
-            f" | taxa {_fmt(o.get('profit_rate'), '.2f')}%{sizing}")
-    text_body = "📡 OPORTUNIDADES DE VENDA DE PUT\n\n" + "\n\n".join(linhas) + \
+            f"{i}. {o.get('ticker','')} {o.get('option_ticker','')}\n"
+            f"   Strike {_brl(o.get('strike'))} | Spot {_brl(o.get('spot'))} ({_pct(o.get('dist_pct'),1)}) | "
+            f"IV Rank {_num(o.get('iv_rank'),0)} | DTE {o.get('dte','')} | Taxa {_pct(o.get('profit_rate'))}\n"
+            f"   💡 {o.get('motivo','')}")
+    text = "📡 OPORTUNIDADES DE VENDA DE PUT\n\n" + "\n\n".join(linhas) + \
         "\n\nNão é recomendação de investimento.\n— motor ResearchDeOpcoes"
-
-    # --- HTML ---
-    has_sizing = any(o.get("contratos_sugeridos") is not None for o in opps)
-    headers = ["Opção", "Ativo", "Strike", "Spot", "Spot/Strike", "IV Rank", "Taxa%", "DTE", "Vol.Fin"]
-    if has_sizing:
-        headers.append("Contratos")
-    rows = []
-    for o in opps:
-        row = [
-            o.get("option_ticker", ""), o.get("ticker", ""),
-            _fmt(o.get("strike"), ".2f"), _fmt(o.get("spot"), ".2f"),
-            _fmt(o.get("spot_strike_ratio"), ".4f"), _fmt(o.get("iv_rank"), ".1f"),
-            _fmt(o.get("profit_rate"), ".2f"), _fmt(o.get("dte")),
-            f"{o.get('volume_fin'):.0f}" if o.get("volume_fin") is not None else "-",
-        ]
-        if has_sizing:
-            row.append(_fmt(o.get("contratos_sugeridos")))
-        rows.append(row)
-    html = (
-        "<h2 style='font-family:Segoe UI,Arial'>📡 Oportunidades de Venda de PUT</h2>"
-        f"<p style='font-family:Segoe UI,Arial'>Top {len(opps)} (IV Rank alto, OTM com margem, "
-        f"DTE no alvo, líquidas):</p>{_table(rows, headers)}"
-        "<p style='font-family:Segoe UI,Arial;color:#666;font-size:12px'>"
-        "Gerado automaticamente pelo motor ResearchDeOpcoes. Não é recomendação de investimento.</p>"
-    )
-    return _send(subject, html, text_body)
+    return _send(subject, html, text)

@@ -34,6 +34,7 @@ def harness(monkeypatch):
                         lambda tab, rows, header=None: cap["history"].append((tab, len(rows))))
     monkeypatch.setattr(app_main.sheets_client, "upsert_status_row",
                         lambda tab, header, row: cap["heartbeat"].append(row))
+    monkeypatch.setattr(app_main.sheets_client, "ensure_tab", lambda *a, **k: None)
     monkeypatch.setattr(app_main.state, "run_lock", lambda *a, **k: contextlib.nullcontext())
     monkeypatch.setattr(app_main.state, "filter_new_alerts", lambda x: x)
     monkeypatch.setattr(app_main.state, "filter_new_opportunities", lambda x: x)

@@ -104,6 +104,17 @@ def upsert_status_row(tab_title: str, header: Sequence[str], row: Sequence) -> N
     )
 
 
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=2, max=16))
+def ensure_tab(tab_title: str, header: Sequence[str]) -> None:
+    """Garante que a aba existe (cria com o cabeçalho, vazia, se faltar)."""
+    ss = _spreadsheet()
+    try:
+        ss.worksheet(tab_title)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=tab_title, rows=200, cols=max(len(header), 3))
+        ws.append_row(list(header), value_input_option="USER_ENTERED")
+
+
 def _cell(value) -> str:
     return "" if value is None else str(value)
 
