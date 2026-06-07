@@ -234,28 +234,45 @@ def _pctg(v) -> str:
 
 
 # --- linhas dos painéis (alimentam o web app; lidas por NOME do cabeçalho) ---
+def _row_for(header: list, values: dict) -> list:
+    """Monta a linha do painel a partir de {COLUNA: valor}, SEMPRE na ordem do
+    cabeçalho — elimina a fragilidade de listas posicionais (uma coluna fora de
+    ordem virava bug mudo no web app). Coluna sem valor vira célula vazia."""
+    return [values.get(col) for col in header]
+
+
 def _esc_panel_row(ts: str, a: dict) -> list:
-    return [ts, a.get("ticker"), a.get("option_ticker"), a.get("side"), a.get("option_type"),
-            a.get("nivel"), a.get("moneyness"), a.get("dte"), a.get("expiry"), a.get("quantity"),
-            a.get("spot"), a.get("strike"), a.get("dist_pct"), a.get("entry_price"),
-            a.get("last_premium"), a.get("buyback_mult"), a.get("break_even"), a.get("delta"),
-            a.get("gamma"), a.get("poe"), a.get("poe_mc_gate"),
-            a.get("pl_value"), a.get("pl_pct"),
-            a.get("max_gain"), a.get("max_profit_pct"), a.get("notional"),
-            a.get("analise"), a.get("acao_sugerida"), a.get("toque_gate")]
+    return _row_for(config.PAINEL_ESCUDO_HEADER, {
+        "ATUALIZADO_EM": ts, "TICKER": a.get("ticker"), "OPCAO": a.get("option_ticker"),
+        "SIDE": a.get("side"), "TIPO": a.get("option_type"), "NIVEL": a.get("nivel"),
+        "MONEYNESS": a.get("moneyness"), "DTE": a.get("dte"), "EXPIRY": a.get("expiry"),
+        "QTD": a.get("quantity"), "SPOT": a.get("spot"), "STRIKE": a.get("strike"),
+        "DIST_PCT": a.get("dist_pct"), "PREMIO_ENTRADA": a.get("entry_price"),
+        "PREMIO_ATUAL": a.get("last_premium"), "RECOMPRA_X": a.get("buyback_mult"),
+        "BREAK_EVEN": a.get("break_even"), "DELTA": a.get("delta"), "GAMMA": a.get("gamma"),
+        "POE": a.get("poe"), "POE_MC": a.get("poe_mc_gate"), "PL_VALUE": a.get("pl_value"),
+        "PL_PCT": a.get("pl_pct"), "GANHO_MAX": a.get("max_gain"),
+        "LUCRO_MAX_PCT": a.get("max_profit_pct"), "NOCIONAL": a.get("notional"),
+        "ANALISE": a.get("analise"), "ACAO": a.get("acao_sugerida"), "TOQUE": a.get("toque_gate"),
+    })
 
 
 def _rad_panel_row(ts: str, o: dict) -> list:
     tr = o.get("trava") or {}
     fonte = "estimado (≈)" if o.get("premio_estimado") else (o.get("premio_fonte") or "real")
-    return [ts, o.get("ticker"), o.get("option_ticker"), o.get("expiry_fmt"), o.get("dte"),
-            o.get("strike"), o.get("spot"), o.get("dist_pct"), o.get("premio"), fonte,
-            o.get("iv_rank"), o.get("profit_rate"), o.get("poe_mc_gate"),
-            o.get("volume_fin"),
-            tr.get("sell_opt"), tr.get("sell_strike"), tr.get("sell_premio"),
-            tr.get("buy_opt"), tr.get("buy_strike"), tr.get("buy_premio"),
-            tr.get("credito"), tr.get("risco_max"), tr.get("retorno_risco"),
-            o.get("motivo"), o.get("analise"), o.get("toque_gate")]
+    return _row_for(config.PAINEL_RADAR_HEADER, {
+        "ATUALIZADO_EM": ts, "TICKER": o.get("ticker"), "OPCAO": o.get("option_ticker"),
+        "EXPIRY": o.get("expiry_fmt"), "DTE": o.get("dte"), "STRIKE": o.get("strike"),
+        "SPOT": o.get("spot"), "DIST_PCT": o.get("dist_pct"), "PREMIO": o.get("premio"),
+        "PREMIO_FONTE": fonte, "IV_RANK": o.get("iv_rank"), "TAXA_RETORNO": o.get("profit_rate"),
+        "POE_MC": o.get("poe_mc_gate"), "VOLUME_FIN": o.get("volume_fin"),
+        "TRAVA_VENDE_OPCAO": tr.get("sell_opt"), "TRAVA_VENDE_STRIKE": tr.get("sell_strike"),
+        "TRAVA_VENDE_PREMIO": tr.get("sell_premio"), "TRAVA_COMPRA_OPCAO": tr.get("buy_opt"),
+        "TRAVA_COMPRA_STRIKE": tr.get("buy_strike"), "TRAVA_COMPRA_PREMIO": tr.get("buy_premio"),
+        "TRAVA_CREDITO": tr.get("credito"), "TRAVA_RISCO_MAX": tr.get("risco_max"),
+        "TRAVA_RETORNO_RISCO": tr.get("retorno_risco"), "MOTIVO": o.get("motivo"),
+        "ANALISE": o.get("analise"), "TOQUE": o.get("toque_gate"),
+    })
 
 
 # --- logs didáticos (passo a passo, p/ auditoria detalhada) -----------------
@@ -653,9 +670,11 @@ def run() -> int:
         rc = 1
     finally:
         dur = time.monotonic() - started
-        _write_heartbeat(log, tz, summary, status_final, dur)
         log.info("RUN", "Fim do ciclo", {"status": status_final, "duracao_s": round(dur, 1), **summary})
-        log.flush()
+        # Grava os LOGS ANTES do heartbeat, para o heartbeat poder sinalizar a falha.
+        logs_ok = log.flush()
+        _write_heartbeat(log, tz, summary, status_final, dur,
+                         notes="" if logs_ok else "FALHA AO GRAVAR LOGS — auditoria incompleta")
 
     return rc
 

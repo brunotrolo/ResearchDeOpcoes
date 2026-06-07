@@ -276,8 +276,8 @@ def send_radar_opportunities(opps: list[dict]) -> bool:
             f"   Prêmio (CLOSE): {aprox}{_brl(o.get('premio'))}")
         if tr:
             bloco += (
-                f"\n   🛡️ TRAVA DE ALTA: VENDE PUT {_brl(tr.get('sell_strike'))} (prêmio {aprox}{_brl(tr.get('sell_premio'))})"
-                f" | COMPRA PUT {_brl(tr.get('buy_strike'))} (prêmio {aprox}{_brl(tr.get('buy_premio'))})"
+                f"\n   🛡️ TRAVA DE ALTA: VENDE PUT {tr.get('sell_opt','')} {_brl(tr.get('sell_strike'))} (prêmio {aprox}{_brl(tr.get('sell_premio'))})"
+                f" | COMPRA PUT {tr.get('buy_opt','')} {_brl(tr.get('buy_strike'))} (prêmio {aprox}{_brl(tr.get('buy_premio'))})"
                 f"\n      Crédito {aprox}{_brl(tr.get('credito'))}/ação | Risco máx. {_brl(tr.get('risco_max'))}/ação"
                 f" | Retorno/Risco {_rr(tr.get('retorno_risco'))}")
         bloco += f"\n   💡 {o.get('motivo','')}"
