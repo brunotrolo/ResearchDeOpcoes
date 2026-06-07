@@ -182,6 +182,9 @@ PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STR
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
+# A aba LOGS é REESCRITA a cada ciclo (run mais recente no TOPO, sem linhas vazias),
+# limitada a este nº de linhas — a auditoria fica visível logo abaixo do cabeçalho.
+LOGS_MAX_ROWS = _env_int("LOGS_MAX_ROWS", 4000)
 
 # Cabeçalho da aba MONITOR (heartbeat / observabilidade — 1 linha sobrescrita)
 MONITOR_HEADER = ["UPDATED_AT", "STATUS", "MARKET", "DURATION_S",
