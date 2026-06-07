@@ -46,9 +46,13 @@ def build_vol_map(df_dados: pd.DataFrame | None) -> dict[str, dict]:
 
 
 def _fmt_expiry(raw) -> str:
-    """A aba de lucros traz EXPIRY como número serial do Sheets — converte p/ data."""
-    n = parsing.to_float(raw, ",")
-    if n is not None and n > 40000:
+    """A aba de lucros/scanner traz EXPIRY como número serial do Sheets — converte
+    p/ data. Detecta o separador automaticamente (a planilha pode vir em pt-BR ou
+    US) e só converte dentro de uma faixa plausível de serial (~2009 a 2064);
+    fora dela devolve o texto cru, evitando overflow de data (o Sheets exporta o
+    serial COM fração de tempo, ex.: '46192.5833', que mal-parseado estoura)."""
+    n = parsing.to_float(raw, "auto")
+    if n is not None and 40000 < n < 60000:
         return (date(1899, 12, 30) + timedelta(days=int(n))).strftime("%d/%m/%Y")
     return str(raw or "")
 
