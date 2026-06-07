@@ -148,6 +148,13 @@ def _eh_put(cat) -> bool:
     return c.startswith("PUT") or c == "P"
 
 
+def _mid(bid, ask):
+    """Meio do book (bid+ask)/2 — prêmio de referência quando não há CLOSE."""
+    if bid and ask and bid > 0 and ask > 0:
+        return round((bid + ask) / 2.0, 2)
+    return None
+
+
 def _r2(v) -> str:
     """Formata um número com 2 casas em pt-BR (8.0 -> '8,00')."""
     return "—" if v is None else f"{v:.2f}".replace(".", ",")
@@ -168,6 +175,7 @@ def scanner_index(df_scanner: "pd.DataFrame | None") -> tuple[dict, dict]:
     opt = frames.raw(df_scanner, "scanner", "option_ticker")
     tkr = frames.txt(df_scanner, "scanner", "ticker")
     cat = frames.txt(df_scanner, "scanner", "category")
+    typ = frames.txt(df_scanner, "scanner", "type")
     strike = frames.num(df_scanner, "scanner", "strike")
     close = frames.num(df_scanner, "scanner", "close")
     bid = frames.num(df_scanner, "scanner", "bid")
@@ -175,16 +183,17 @@ def scanner_index(df_scanner: "pd.DataFrame | None") -> tuple[dict, dict]:
     dte = frames.num(df_scanner, "scanner", "dte")
     for i in range(len(df_scanner)):
         o = str(opt.iloc[i]).strip().upper()
-        c_close = _v(close, i)
+        c_close, c_bid, c_ask = _v(close, i), _v(bid, i), _v(ask, i)
+        premio = c_close if c_close else _mid(c_bid, c_ask)   # CLOSE, senão meio do book
         if o:
-            prem_map[o] = {"close": c_close, "bid": _v(bid, i), "ask": _v(ask, i)}
-        if not _eh_put(cat.iloc[i]):
+            prem_map[o] = {"premio": premio, "close": c_close, "bid": c_bid, "ask": c_ask}
+        if not (_eh_put(cat.iloc[i]) or _eh_put(typ.iloc[i])):
             continue
         t = str(tkr.iloc[i]).strip().upper()
         k = _v(strike, i)
         if t and k:
             chain.setdefault(t, []).append(
-                {"strike": k, "premio": c_close, "opt": o, "dte": _v(dte, i)})
+                {"strike": k, "premio": premio, "opt": o, "dte": _v(dte, i)})
     return prem_map, chain
 
 
@@ -212,8 +221,8 @@ def _premio_opcao(rec: dict, prem_map: dict) -> tuple[float | None, bool]:
     Devolve (premio, estimado). estimado=True => valor aproximado (rótulo '≈')."""
     o = str(rec.get("option_ticker") or "").strip().upper()
     info = prem_map.get(o)
-    if info and info.get("close"):
-        return float(info["close"]), False
+    if info and info.get("premio"):
+        return float(info["premio"]), False
     ve, k = rec.get("ve_over_strike"), rec.get("strike")
     if ve is not None and not _isnan(ve) and k:
         return float(round(ve / 100.0 * k, 2)), True
@@ -401,6 +410,12 @@ def scan(
         if cfg.usar_trava:
             rec["trava"] = _build_trava(rec, chain, cfg.trava_largura_pct)
         rec["analise"] = analise(rec)
+
+    if audit is not None:
+        audit["scanner_opcoes"] = len(prem_map)
+        audit["premios_reais"] = sum(1 for r in records if not r.get("premio_estimado"))
+        audit["premios_estimados"] = sum(1 for r in records if r.get("premio_estimado"))
+        audit["travas_montadas"] = sum(1 for r in records if r.get("trava"))
 
     # Sugestão de sizing (nº de contratos p/ arriscar RISK_PER_TRADE do capital).
     # Proxy de margem para PUT cash-secured: strike * 100 (tamanho do lote).

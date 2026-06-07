@@ -127,6 +127,39 @@ def test_trava_desligada_mantem_premio():
     assert o["premio"] == 2.00                                          # prêmio real ainda aparece
 
 
+def test_scanner_formato_us_ponto_decimal():
+    """SCANNER_OPCOES vem em formato US (ponto decimal); auto-detecta e usa CLOSE real."""
+    scanner = pd.DataFrame([
+        _scan(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76.00", CLOSE="2.00"),
+        _scan(OPTION_TICKER="VALEX72", TICKER="VALE3", STRIKE="72.00", CLOSE="1.00"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    o = radar.scan(_opp_vale(), cfg=cfg, df_scanner=scanner)[0]
+    assert o["premio"] == 2.00 and o["premio_estimado"] is False     # CLOSE "2.00" -> 2,00 (não 200)
+    assert o["trava"]["buy_strike"] == 72.0 and o["trava"]["credito"] == 1.00
+
+
+def test_premio_usa_meio_do_book_quando_sem_close():
+    """Sem CLOSE mas com BID/ASK, usa o meio do book como prêmio real (não estimativa)."""
+    scanner = pd.DataFrame([
+        _scan(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76.00", CLOSE="", BID="1.90", ASK="2.10"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False, usar_trava=False)
+    o = radar.scan(_opp_vale(), cfg=cfg, df_scanner=scanner)[0]
+    assert o["premio"] == 2.00 and o["premio_estimado"] is False     # (1,90+2,10)/2
+
+
+def test_categoria_put_via_coluna_type():
+    """Se CATEGORY não disser PUT mas TYPE sim, ainda entra na cadeia da trava."""
+    scanner = pd.DataFrame([
+        _scan(OPTION_TICKER="VALEX76", TICKER="VALE3", CATEGORY="OPTION", TYPE="PUT", STRIKE="76.00", CLOSE="2.00"),
+        _scan(OPTION_TICKER="VALEX72", TICKER="VALE3", CATEGORY="OPTION", TYPE="PUT", STRIKE="72.00", CLOSE="1.00"),
+    ])
+    cfg = config.RadarCfg(use_dados_ativos_whitelist=False)
+    o = radar.scan(_opp_vale(), cfg=cfg, df_scanner=scanner)[0]
+    assert o["trava"] is not None and o["trava"]["buy_strike"] == 72.0
+
+
 def test_trava_largura_maior_escolhe_strike_mais_baixo():
     """largura_pct=10% -> alvo 68,4 -> strike 70 (mais próximo abaixo)."""
     scanner = pd.DataFrame([
