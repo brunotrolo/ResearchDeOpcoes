@@ -162,11 +162,18 @@ DEFAULT_CONFIG = [
     ["ESCUDO_IBOV_EXPOSICAO_MAX", "80", "Exposicao maxima ao IBOV (%)"],
     ["ESCUDO_IBOV_CORREL_MIN", "0.50", "Correlacao minima p/ contar como exposto ao IBOV"],
 ]
-# Painéis sobrescritos a cada execução (alimentam o web app).
-PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "NIVEL", "MONEYNESS", "DTE",
-                        "DELTA", "POE", "PL_VALUE", "ANALISE", "ACAO"]
-PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "STRIKE", "SPOT", "DIST_PCT",
-                       "IV_RANK", "DTE", "ANALISE"]
+# Painéis sobrescritos a cada execução (alimentam o web app). O web app lê pelo
+# NOME do cabeçalho, então a ordem/quantidade pode evoluir sem quebrar o painel.
+PAINEL_ESCUDO_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "SIDE", "TIPO", "NIVEL", "MONEYNESS",
+                        "DTE", "EXPIRY", "QTD", "SPOT", "STRIKE", "DIST_PCT",
+                        "PREMIO_ENTRADA", "PREMIO_ATUAL", "RECOMPRA_X", "BREAK_EVEN",
+                        "DELTA", "GAMMA", "POE", "POE_MC", "PL_VALUE", "PL_PCT",
+                        "GANHO_MAX", "LUCRO_MAX_PCT", "NOCIONAL", "ANALISE", "ACAO"]
+PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STRIKE", "SPOT",
+                       "DIST_PCT", "PREMIO", "PREMIO_FONTE", "IV_RANK", "TAXA_RETORNO", "POE_MC",
+                       "VOLUME_FIN", "TRAVA_VENDE_STRIKE", "TRAVA_VENDE_PREMIO",
+                       "TRAVA_COMPRA_STRIKE", "TRAVA_COMPRA_PREMIO", "TRAVA_CREDITO",
+                       "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
@@ -245,9 +252,12 @@ COLUMN_MAP: dict[str, dict[str, str]] = {
         "type": "TYPE",                # PUT / CALL (redundante com CATEGORY)
         "strike": "STRIKE",
         "close": "CLOSE",              # último preço/prêmio negociado da opção
+        "price": "PRICE",              # preço teórico/atual (exportação rica)
+        "mid_price": "MID_PRICE",      # meio do book (exportação rica)
         "bid": "BID",
         "ask": "ASK",
         "dte": "DTE_CALENDAR",
+        "expiry": "EXPIRY",
     },
     "volumes": {
         "ticker": "TICKER",
