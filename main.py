@@ -286,6 +286,11 @@ def _pct_txt(x):
     return f"{round(x * 100)}%" if (isinstance(x, (int, float)) and x == x) else None
 
 
+def _pct_signed(x):
+    """Margem assinada didática: -3.66 -> '-3,7%'; None/NaN -> None."""
+    return f"{x:+.1f}%".replace(".", ",") if (isinstance(x, (int, float)) and x == x) else None
+
+
 def _diag_panel_row(ts: str, d: dict) -> list:
     return _row_for(config.DIAGNOSTICO_HEADER, {
         "ATUALIZADO_EM": ts, "TICKER": d.get("ticker"),
@@ -293,8 +298,10 @@ def _diag_panel_row(ts: str, d: dict) -> list:
         "TENDENCIA": _TREND_PT_DIAG.get(d.get("trend_label"), d.get("trend_label") or "—"),
         "IV_RANK": (round(d["iv_rank"]) if isinstance(d.get("iv_rank"), (int, float))
                     and d["iv_rank"] == d["iv_rank"] else None),
+        "SPOT": d.get("spot"), "STRIKE": d.get("strike"), "MARGEM": _pct_signed(d.get("margem")),
         "CHANCE_EXERCICIO": _pct_txt(d.get("poe")), "CHANCE_TOQUE": _pct_txt(d.get("toque")),
-        "POR_QUE": d.get("motivo"), "MONTE_CARLO": d.get("mc_frase"),
+        "CENARIO_30D": d.get("cenario_txt"), "POR_QUE": d.get("motivo"),
+        "COMO_LER": d.get("como_ler"),
     })
 
 

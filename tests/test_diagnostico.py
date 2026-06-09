@@ -54,7 +54,7 @@ def test_rejeicao_por_iv_baixo():
 def test_rejeicao_sem_opcoes_listadas():
     d = _por_ticker()["WEGE3"]
     assert d["veredito"] == "REJEITADO" and "universo" in d["motivo"].lower()
-    assert d["mc_frase"] == "Sem opção listada para simular."
+    assert d["como_ler"] == "Sem opção listada para simular."
 
 
 def test_indicado_quando_esta_na_lista_de_oportunidades():
@@ -66,7 +66,7 @@ def test_indicado_quando_esta_na_lista_de_oportunidades():
         DADOS, SCANNER, cfg=cfg, mc=sim, vol_map=vmap, poe_max=0.60, opps=opps)}
     assert any(o["ticker"] == "USIM5" for o in opps)
     assert diag["USIM5"]["veredito"] == "INDICADO"
-    assert "exerc" in diag["USIM5"]["mc_frase"].lower()
+    assert "exerc" in diag["USIM5"]["como_ler"].lower()
     # Indicados vêm primeiro na ordenação.
     ordem = [d["veredito"] for d in radar.diagnosticar_universo(
         DADOS, SCANNER, cfg=cfg, mc=sim, vol_map=vmap, poe_max=0.60, opps=opps)]
@@ -79,15 +79,32 @@ def test_monte_carlo_estressa_a_baixa_em_ticker_baixista():
     vmap = radar.build_vol_map(DADOS)
     d = {x["ticker"]: x for x in radar.diagnosticar_universo(
         DADOS, SCANNER, cfg=config.RadarCfg(), mc=sim, vol_map=vmap, poe_max=0.25)}["CSNA3"]
-    assert "baixa seguir" in d["mc_frase"] and "sobe" in d["mc_frase"]
+    assert "baixa seguir" in d["como_ler"] and "sobe" in d["como_ler"]
 
 
-def test_panel_row_formata_percentuais_e_veredito():
+def test_panel_row_formata_colunas_novas():
     row = main._diag_panel_row("2026-06-09 10:00:00", {
-        "ticker": "USIM5", "veredito": "INDICADO", "trend_label": "ALTA",
-        "iv_rank": 83.0, "poe": 0.314, "toque": 0.61, "motivo": "x", "mc_frase": "y"})
+        "ticker": "USIM5", "veredito": "INDICADO", "trend_label": "ALTA", "iv_rank": 83.0,
+        "spot": 11.46, "strike": 11.04, "margem": -3.66, "poe": 0.314, "toque": 0.61,
+        "cenario_txt": "Hoje R$ 11,46 ...", "motivo": "x", "como_ler": "y"})
     h = config.DIAGNOSTICO_HEADER
     g = lambda n: row[h.index(n)]
     assert len(row) == len(h)
-    assert g("VEREDITO") == "✅ Indicado" and g("TENDENCIA") == "ALTA"
-    assert g("IV_RANK") == 83 and g("CHANCE_EXERCICIO") == "31%" and g("CHANCE_TOQUE") == "61%"
+    assert g("VEREDITO") == "✅ Indicado" and g("TENDENCIA") == "ALTA" and g("IV_RANK") == 83
+    assert g("SPOT") == 11.46 and g("STRIKE") == 11.04 and g("MARGEM") == "-3,7%"
+    assert g("CHANCE_EXERCICIO") == "31%" and g("CHANCE_TOQUE") == "61%"
+    assert g("CENARIO_30D").startswith("Hoje") and g("COMO_LER") == "y"
+
+
+def test_cenario_e_como_ler_baseados_em_dados():
+    """CENARIO_30D traz hoje→pior/provável/melhor; COMO_LER explica os % com a vol,
+    o nº de cenários e a posição do strike — e o link 'ficou de fora' no rejeitado."""
+    sim = montecarlo.MonteCarloSimulator(n=100000, seed=42)
+    vmap = radar.build_vol_map(DADOS)
+    diag = {x["ticker"]: x for x in radar.diagnosticar_universo(
+        DADOS, SCANNER, cfg=config.RadarCfg(), mc=sim, vol_map=vmap, poe_max=0.25)}
+    csna = diag["CSNA3"]
+    assert "Hoje R$" in csna["cenario_txt"] and "pior 5%" in csna["cenario_txt"] and "melhor 5%" in csna["cenario_txt"]
+    assert "mil cenários" in csna["como_ler"] and "vol " in csna["como_ler"]
+    assert "FECHAM abaixo" in csna["como_ler"] and "Ficou de fora" in csna["como_ler"]
+    assert "(0%)" not in csna["cenario_txt"] or "-0%" not in csna["cenario_txt"]   # sem "-0%"
