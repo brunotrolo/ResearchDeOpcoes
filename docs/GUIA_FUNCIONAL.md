@@ -9,7 +9,7 @@ parâmetros da aba CONFIG, veja [`CONFIG.md`](CONFIG.md).
 
 ## 1. O que o motor faz
 
-De hora em hora, durante o pregão, o motor:
+A cada execução (manual, pelo GitHub Actions), o motor:
 
 1. Confere se está **dentro do pregão** (relógio de ponto: dias úteis 10:00–16:30).
    Fora do horário, encerra para poupar processamento.
