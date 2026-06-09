@@ -38,7 +38,7 @@
 const SHEET_ID = '1zuYr3lTOSsVJzvrBJezZ5hFMIM3jpt2jDfR8uCapKds';
 const EMAIL_ALERTA = 'brunotrolo@gmail.com';
 const TZ = 'America/Sao_Paulo';
-const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_PESC = 'PAINEL_ESCUDO', ABA_PRAD = 'PAINEL_RADAR';
+const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_PESC = 'PAINEL_ESCUDO', ABA_PRAD = 'PAINEL_RADAR', ABA_DIAG = 'RADAR_DIAGNOSTICO';
 const LIMITE_MIN = 75;
 // Janela do pregão (dias úteis, fuso TZ): vigia só alerta dentro dela. Apenas
 // pelo relógio — sem depender da API de status do mercado.
@@ -326,30 +326,35 @@ function _porQueRadar(g, temTrava) {
   return _why('🔬 Por que esta ideia?', _reasons(L), ver);
 }
 
-function _cardEscudo() {
+function _nivelPill(n) {
+  n = String(n).toUpperCase();
+  var m = { CRITICO: ['🔴 CRÍTICO', '#fca5a5', 'rgba(248,113,113,.16)', 'rgba(248,113,113,.45)'],
+    ALERTA: ['🟠 ALERTA', '#fde68a', 'rgba(251,191,36,.14)', 'rgba(251,191,36,.4)'],
+    AVISO: ['🟡 AVISO', '#a5f3fc', 'rgba(34,211,238,.12)', 'rgba(34,211,238,.35)'] }[n]
+    || ['OK', '#b8f5dd', 'rgba(52,211,153,.12)', 'rgba(52,211,153,.35)'];
+  return "<span class='nivel' style='color:" + m[1] + ";background:" + m[2] + ";border:1px solid " + m[3] + "'>" + m[0] + "</span>";
+}
+function _leadCls(n) { n = String(n).toUpperCase(); return n === 'CRITICO' ? 'lead-red' : n === 'ALERTA' ? 'lead-amber' : n === 'AVISO' ? 'lead-cyan' : 'lead-green'; }
+
+function _buildEscudo() {
   const { idx, rows } = _readPanel(ABA_PESC);
-  if (!rows.length) return _section('🛡️ Posições em atenção', '',
-    "<div class='empty'>Tudo tranquilo por aqui. 🎉<br>Nenhuma posição precisa de defesa agora.</div>");
   const c = { CRITICO: 0, ALERTA: 0, AVISO: 0 };
   rows.forEach(r => { const n = String(r[idx['NIVEL']]).toUpperCase(); if (c[n] != null) c[n]++; });
-  const badge = '🔴 ' + c.CRITICO + ' · 🟠 ' + c.ALERTA + ' · 🟡 ' + c.AVISO;
+  const head = "<div class='sec-head'><h2>🛡️ Posições em atenção</h2><span class='hint'>🔴 " + c.CRITICO + " · 🟠 " + c.ALERTA + " · 🟡 " + c.AVISO + "</span></div>";
+  if (!rows.length) return { html: head + "<div class='empty'>Tudo tranquilo por aqui. 🎉<br>Nenhuma posição precisa de defesa agora.</div>", n: 0, c: c };
   let items = '';
   rows.forEach(r => {
     const g = n => (idx[n] == null ? '' : r[idx[n]]);
     const nivel = String(g('NIVEL')).toUpperCase();
-    const cor = _corNivel(nivel);
     if (String(g('OPCAO')).indexOf('PORTFOLIO') === 0) {
-      items += "<div class='item' style='border-left-color:" + cor + "'>"
-        + "<div class='row1'><span class='tk'>🛡️ Carteira</span>"
-        + "<span class='nivel' style='background:" + cor + "'>" + esc(nivel) + "</span></div>"
+      items += "<div class='card " + _leadCls(nivel) + "'><div class='row1'><span class='tk'>🛡️ Carteira</span>"
+        + "<span style='margin-left:auto'>" + _nivelPill(nivel) + "</span></div>"
         + (g('ANALISE') ? "<div class='analise'>" + esc(g('ANALISE')) + "</div>" : '')
         + (g('ACAO') ? "<div class='acao'>👉 " + esc(g('ACAO')) + "</div>" : '') + "</div>";
       return;
     }
-    const chips = _chip('', esc(g('MONEYNESS')))
-      + _chip('DTE', _diasTxt(g('DTE')))
-      + _chip('Δ', _fmtNum(g('DELTA'), 2))
-      + _chip('γ', _fmtNum(g('GAMMA'), 2))
+    const chips = _chip('', esc(g('MONEYNESS'))) + _chip('DTE', _diasTxt(g('DTE')))
+      + _chip('Δ', _fmtNum(g('DELTA'), 2)) + _chip('γ', _fmtNum(g('GAMMA'), 2))
       + _chip('PoE', _fmtPct(_num(g('POE')) == null ? null : _num(g('POE')) * 100, 0))
       + (g('POE_MC') !== '' ? _chip('PoE-MC', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0)) : '')
       + (g('TOQUE') !== '' ? _chip('Toque', _fmtPct(_num(g('TOQUE')) == null ? null : _num(g('TOQUE')) * 100, 0)) : '')
@@ -360,9 +365,9 @@ function _cardEscudo() {
       ['Prêmio méd.', _fmtMoney(g('PREMIO_ENTRADA'))], ['Prêmio atual', _fmtMoney(g('PREMIO_ATUAL'))], ['Break-even', _fmtMoney(g('BREAK_EVEN'))],
       ['L/P aberto', pl], ['Ganho máx.', _fmtMoney(g('GANHO_MAX'))], ['Nocional', _fmtMoney(g('NOCIONAL'))],
     ]);
-    items += "<div class='item' style='border-left-color:" + cor + "'>"
+    items += "<div class='card " + _leadCls(nivel) + "'>"
       + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span>"
-      + "<span class='nivel' style='background:" + cor + "'>" + esc(nivel) + "</span></div>"
+      + "<span style='margin-left:auto'>" + _nivelPill(nivel) + "</span></div>"
       + "<div class='sub'>" + esc(g('SIDE')) + " " + esc(g('TIPO')) + " · " + esc(g('MONEYNESS'))
       + " · " + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ") · " + esc(g('QTD')) + " contratos</div>"
       + "<div class='chips'>" + chips + "</div>" + grid
@@ -370,7 +375,7 @@ function _cardEscudo() {
       + (g('ACAO') ? "<div class='acao'>👉 " + esc(g('ACAO')) + "</div>" : '')
       + _porQueEscudo(g, nivel) + "</div>";
   });
-  return _section('🛡️ Posições em atenção', badge, "<div class='cards'>" + items + "</div>");
+  return { html: head + "<div class='cards'>" + items + "</div>", n: rows.length, c: c };
 }
 
 function _travaBlock(g) {
@@ -397,44 +402,104 @@ function _travaBlock(g) {
  *  Como o motor BLOQUEIA baixistas, o que sobra é ✅ Alta / ➖ Neutro — sinal de
  *  confiança de que você não está entrando contra a maré. */
 function _trendChip(label) {
-  var m = { ALTA: ['#dcfce7', '#166534', '✅ Alta'], NEUTRO: ['#f1f5f9', '#334155', '➖ Neutro'],
-    REPIQUE_BAIXA: ['#ffedd5', '#9a3412', '⚠️ Repique↓'], BAIXA: ['#fee2e2', '#991b1b', '⛔ Baixa'] };
+  var m = { ALTA: ['green', '✅ Alta'], NEUTRO: ['', '➖ Neutro'],
+    REPIQUE_BAIXA: ['amber', '⚠️ Repique↓'], BAIXA: ['red', '⛔ Baixa'] };
   var c = m[String(label || '').toUpperCase()];
-  return c ? "<span class='chip' style='background:" + c[0] + ";color:" + c[1] + ";border-color:" + c[0] + "'>" + c[2] + "</span>" : '';
+  return c ? "<span class='chip " + c[0] + "'>" + c[1] + "</span>" : '';
 }
 
-function _cardRadar() {
+/** Anel (conic-gradient) com o percentual no centro — leitura visual de chance. */
+function _ring(pct, color, label, desc) {
+  if (pct == null) return '';
+  var p = Math.max(0, Math.min(100, Math.round(pct)));
+  return "<div class='gauge'><div class='ring' style='background:conic-gradient(" + color + " " + p + "%,rgba(255,255,255,.08) 0)'><span>" + p + "%</span></div>"
+    + "<div><div class='gl'>" + esc(label) + "</div>" + (desc ? "<div class='gd'>" + esc(desc) + "</div>" : '') + "</div></div>";
+}
+function _ringColor(p) { return p == null ? 'var(--muted)' : p <= 25 ? 'var(--green)' : p <= 50 ? 'var(--amber)' : 'var(--red)'; }
+function _toqueColor(p) { return p == null ? 'var(--muted)' : p <= 40 ? 'var(--green)' : p <= 70 ? 'var(--amber)' : 'var(--red)'; }
+
+function _buildRadar() {
   const { idx, rows } = _readPanel(ABA_PRAD);
-  if (!rows.length) return _section('📡 Oportunidades', '',
-    "<div class='empty'>Sem oportunidades no filtro agora.<br>O Radar reavalia a cada execução.</div>");
+  const head = "<div class='sec-head'><h2>📡 Oportunidades — Travas de Alta com PUT</h2><span class='hint'>"
+    + rows.length + (rows.length === 1 ? ' ideia' : ' ideias') + "</span></div>";
+  if (!rows.length) return { html: head + "<div class='empty'>Sem oportunidades no filtro agora.<br>O Radar reavalia a cada execução.</div>", n: 0 };
   let items = '';
   rows.forEach(r => {
     const g = n => (idx[n] == null ? '' : r[idx[n]]);
     const temTrava = g('TRAVA_VENDE_STRIKE') !== '' && g('TRAVA_VENDE_STRIKE') != null;
-    const tag = temTrava ? '🛡️ Trava de Alta com PUT' : '📉 Venda de PUT';
-    const dist = _num(g('DIST_PCT'));
-    const distTxt = dist == null ? '—' : (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + '%';
+    const dist = _num(g('DIST_PCT')); const distTxt = dist == null ? '—' : (dist >= 0 ? '+' : '') + _fmtNum(dist, 1) + '%';
     const aprox = String(g('PREMIO_FONTE') || '').indexOf('estim') >= 0 ? '≈ ' : '';
-    const chips = _trendChip(g('TREND_LABEL'))
-      + _chip('Strike', _fmtMoney(g('STRIKE')))
-      + _chip('Spot', _fmtMoney(g('SPOT')))
-      + _chip('Dist', distTxt)
-      + _chip('IV', _fmtNum(g('IV_RANK'), 0))
-      + _chip('Taxa', _fmtPct(g('TAXA_RETORNO'), 1))
-      + _chip('PoE', _fmtPct(_num(g('POE_MC')) == null ? null : _num(g('POE_MC')) * 100, 0))
-      + (g('TOQUE') !== '' ? _chip('Toque', _fmtPct(_num(g('TOQUE')) == null ? null : _num(g('TOQUE')) * 100, 0)) : '')
-      + _chip('Prêmio', aprox + _fmtMoney(g('PREMIO')))
-      + (g('VOLUME_FIN') !== '' ? _chip('Vol', _fmtMoney(g('VOLUME_FIN'))) : '');
-    items += "<div class='item' style='border-left-color:#16a34a'>"
+    const poe = _pct100(g('POE_MC')), toque = _pct100(g('TOQUE'));
+    const chips = _trendChip(g('TREND_LABEL')) + _chip('IV', _fmtNum(g('IV_RANK'), 0))
+      + _chip('Taxa', _fmtPct(g('TAXA_RETORNO'), 1)) + _chip('Prêmio', aprox + _fmtMoney(g('PREMIO')))
+      + _chip('Dist', distTxt) + (g('VOLUME_FIN') !== '' ? _chip('Vol', _fmtMoney(g('VOLUME_FIN'))) : '');
+    const gauges = (poe != null || toque != null) ? ("<div class='gauges'>"
+      + _ring(poe, _ringColor(poe), 'Exercício', 'chance de virar exercida')
+      + _ring(toque, _toqueColor(toque), 'Toque', 'tocar o strike no caminho') + "</div>") : '';
+    items += "<div class='card lead-green'>"
       + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span> <span class='op'>" + esc(g('OPCAO')) + "</span>"
-      + "<span class='tag'>" + tag + "</span></div>"
+      + "<span class='tag'>" + (temTrava ? '🛡️ Trava de Alta' : '📉 Venda de PUT') + "</span></div>"
       + "<div class='sub'>" + _diasTxt(g('DTE')) + " (" + _fmtDateOnly(g('EXPIRY')) + ") · prêmio " + aprox + _fmtMoney(g('PREMIO')) + "/ação</div>"
-      + "<div class='chips'>" + chips + "</div>" + _travaBlock(g)
+      + "<div class='chips'>" + chips + "</div>" + gauges + _travaBlock(g)
       + (g('ANALISE') ? "<div class='analise'>💡 " + esc(g('ANALISE')) + "</div>" : '')
       + _porQueRadar(g, temTrava) + "</div>";
   });
-  return _section('📡 Oportunidades', rows.length + (rows.length === 1 ? ' ideia' : ' ideias'),
-    "<div class='cards'>" + items + "</div>");
+  return { html: head + "<div class='cards'>" + items + "</div>", n: rows.length };
+}
+
+/** Barra de faixa do cenário: pior 5% ── strike/spot ── melhor 5%, com a zona de
+ *  exercício (preço abaixo do strike) hachurada. Mostra VISUALMENTE o porquê da chance. */
+function _scnBar(p5, p50, p95, strike, spot) {
+  if (p5 == null || p95 == null || p95 <= p5) return '';
+  const pos = x => Math.max(0, Math.min(100, (x - p5) / (p95 - p5) * 100));
+  const sk = strike == null ? null : pos(strike), sp = spot == null ? null : pos(spot);
+  let mks = '';
+  if (sk != null) mks += "<div class='mk strike' style='left:" + sk.toFixed(1) + "%'><span class='lab'>strike " + _fmtNum(strike, 2) + "</span></div>";
+  if (sp != null) mks += "<div class='mk spot' style='left:" + sp.toFixed(1) + "%'><span class='lab'>hoje " + _fmtNum(spot, 2) + "</span></div>";
+  return "<div class='scn'><div class='scn-h'><span>Cenário 30 dias</span><span>faixa provável (5%–95%)</span></div>"
+    + "<div class='track'><div class='exer' style='width:" + (sk == null ? 0 : sk).toFixed(1) + "%'></div>" + mks + "</div>"
+    + "<div class='scn-f'><span>pior 5% <b>" + _fmtMoney(p5) + "</b></span>"
+    + (p50 != null ? "<span>provável <b>" + _fmtMoney(p50) + "</b></span>" : '')
+    + "<span>melhor 5% <b>" + _fmtMoney(p95) + "</b></span></div></div>";
+}
+/** Extrai os números do texto CENARIO_30D (pt-BR) p/ desenhar a barra. */
+function _parseCen(txt) {
+  txt = String(txt || '');
+  const gr = re => { const m = txt.match(re); return m ? _num(m[1]) : null; };
+  return { p5: gr(/pior 5% R\$ ([\d.,]+)/), p50: gr(/prov[aá]vel R\$ ([\d.,]+)/),
+    p95: gr(/melhor 5% R\$ ([\d.,]+)/), spot: gr(/Hoje R\$ ([\d.,]+)/) };
+}
+
+function _buildDiag() {
+  const { idx, rows } = _readPanel(ABA_DIAG);
+  const okOf = v => String(v).toUpperCase().indexOf('INDIC') >= 0;
+  let ind = 0; rows.forEach(r => { if (okOf(r[idx['VEREDITO']])) ind++; });
+  const head = "<div class='sec-head'><h2>🔬 Raio-X do Radar — ticker a ticker</h2><span class='hint'>"
+    + ind + " indicado · " + (rows.length - ind) + " rejeitado · Monte Carlo</span></div>";
+  if (!rows.length) return { html: head + "<div class='empty'>Sem diagnóstico ainda.<br>Roda na próxima execução do Radar.</div>", n: 0, ind: 0 };
+  let items = '';
+  rows.forEach(r => {
+    const g = n => (idx[n] == null ? '' : r[idx[n]]);
+    const okv = okOf(g('VEREDITO'));
+    const exer = _num(g('CHANCE_EXERCICIO')), toque = _num(g('CHANCE_TOQUE'));
+    const spotN = _num(g('SPOT')), strikeN = _num(g('STRIKE')), cen = _parseCen(g('CENARIO_30D'));
+    const tl = String(g('TENDENCIA') || '').toUpperCase();
+    const trendChip = tl ? ("<span class='chip " + (tl === 'ALTA' ? 'green' : tl.indexOf('BAIX') >= 0 ? 'red' : tl.indexOf('REPIQUE') >= 0 ? 'amber' : '') + "'>" + esc(g('TENDENCIA')) + "</span>") : '';
+    const verd = okv ? "<span class='verdict ok'>✅ Indicado</span>" : "<span class='verdict no'>⛔ Rejeitado</span>";
+    const anchor = "<div class='anchor'><div class='gl'>SPOT · STRIKE · MARGEM</div><div class='av'>"
+      + esc(g('SPOT')) + " · " + esc(g('STRIKE')) + " · " + esc(g('MARGEM')) + "</div></div>";
+    const gauges = "<div class='gauges'>" + _ring(exer, _ringColor(exer), 'Exercício', 'fecha abaixo do strike')
+      + _ring(toque, _toqueColor(toque), 'Toque', 'encosta no strike') + anchor + "</div>";
+    const motivo = g('POR_QUE') ? "<div class='motivo'><span class='ic'>" + (okv ? '✅' : '📉') + "</span> " + esc(g('POR_QUE')) + "</div>" : '';
+    const bar = _scnBar(cen.p5, cen.p50, cen.p95, strikeN, spotN != null ? spotN : cen.spot);
+    const como = g('COMO_LER') ? "<details class='por'" + (okv ? ' open' : '') + "><summary>Como ler estes números</summary><div class='body'>" + esc(g('COMO_LER')) + "</div></details>" : '';
+    items += "<div class='card " + (okv ? 'lead-green' : 'lead-red') + "'>"
+      + "<div class='row1'><span class='tk'>" + esc(g('TICKER')) + "</span>"
+      + (g('IV_RANK') !== '' ? "<span class='chip violet'>IV " + _fmtNum(g('IV_RANK'), 0) + "</span>" : '') + trendChip
+      + "<span style='margin-left:auto'>" + verd + "</span></div>"
+      + motivo + gauges + bar + como + "</div>";
+  });
+  return { html: head + "<div class='cards'>" + items + "</div>", n: rows.length, ind: ind };
 }
 
 /** Classifica o log para o filtro: 'erro' (problemas), 'mc' (Monte Carlo) ou 'outros'. */
@@ -445,27 +510,28 @@ function _logCat(service, status) {
   return 'outros';
 }
 
-function _cardLogs() {
+function _buildLogs() {
   const logs = _ultimas(ABA_LOGS, 50, 5).reverse();   // 5 colunas: inclui CONTEXT (dossiê)
-  if (!logs.length) return _section('🧾 Logs recentes', '',
-    "<div class='empty'>Sem logs ainda. O motor grava a auditoria a cada execução.</div>");
-  // Barra: filtros (ler) + limpar (apagar). As funções vivem no <script> da página.
-  const bar = "<div class='logbar'><div class='logfilter'>"
-    + "<button class='fbtn on' onclick='_flog(this,\"todos\")'>Todos</button>"
-    + "<button class='fbtn' onclick='_flog(this,\"erro\")'>⚠️ Problemas</button>"
-    + "<button class='fbtn' onclick='_flog(this,\"mc\")'>🎲 Monte Carlo</button>"
-    + "</div><button class='btn-danger' onclick='_limparLogs()'>🗑️ Limpar logs</button></div>";
-  let body = "<div class='logs'>";
+  const head = "<div class='sec-head'><h2>🧾 Logs recentes</h2><span class='hint'>" + logs.length + " eventos</span></div>";
+  if (!logs.length) return { html: head + "<div class='empty'>Sem logs ainda. O motor grava a auditoria a cada execução.</div>", n: 0 };
+  const bar = "<div class='logbar'>"
+    + "<button class='lf on' onclick='_flog(this,\"todos\")'>Todos</button>"
+    + "<button class='lf' onclick='_flog(this,\"erro\")'>⚠️ Problemas</button>"
+    + "<button class='lf' onclick='_flog(this,\"mc\")'>🎲 Monte Carlo</button>"
+    + "<button class='lf danger' onclick='_limparLogs()'>🗑️ Limpar</button></div>";
+  let body = '';
   logs.forEach(l => {
     const cat = _logCat(l[1], l[2]);
     const ctx = String(l[4] == null ? '' : l[4]).trim();
     const det = ctx ? "<details class='logdet'><summary>ver detalhe »</summary><pre>" + esc(ctx) + "</pre></details>" : '';
-    body += "<div class='log' data-cat='" + cat + "'><span class='dot' style='background:" + _corStatus(l[2]) + "'></span>"
-      + "<span class='t'>" + _fmtDateTime(l[0]) + "</span>"
-      + "<span class='sv'>" + esc(l[1]) + "</span>"
+    const st = String(l[2]).toUpperCase();
+    const bcls = (st.indexOf('ERR') === 0 || st === 'FAIL' || st.indexOf('CRIT') >= 0) ? 'b-crit'
+      : (st.indexOf('WARN') === 0 || st.indexOf('AVISO') >= 0) ? 'b-warn' : 'b-ok';
+    body += "<div class='log' data-cat='" + cat + "'><span class='t'>" + _fmtDateTime(l[0]) + "</span>"
+      + "<span class='badge " + bcls + "'>" + esc(l[1]) + "</span>"
       + "<span class='msg'>" + esc(l[3]) + det + "</span></div>";
   });
-  return _section('🧾 Logs recentes', logs.length + ' eventos', bar + body + "</div>");
+  return { html: head + bar + body, n: logs.length };
 }
 
 /** Apaga TODO o histórico da aba LOGS (mantém o cabeçalho). Chamado pelo web app
@@ -498,31 +564,59 @@ function doGet() {
 
 // Conteúdo dinâmico do painel (hero + resumo + cards). É re-renderizado a cada
 // refresh SEM recarregar a página (ver getPainel/_render).
+function _statusPill(a) {
+  const t = a.titulo || '';
+  const cls = t.indexOf('NO AR') === 0 ? 'ok' : (t.indexOf('FORA') === 0 ? 'warn' : 'bad');
+  return "<span class='statuspill " + cls + "'><span class='dot'></span> " + esc(t) + " · " + _idadeTxt(a.idade) + "</span>";
+}
+function _kpi(l, v, d, cls) {
+  return "<div class='kpi'><div class='l'>" + esc(l) + "</div><div class='v sm " + (cls || '') + "'>" + v + "</div><div class='d'>" + esc(d) + "</div></div>";
+}
+function _tab(id, label, cnt) {
+  return "<div class='tab' data-p='" + id + "' onclick=\"_tab('" + id + "')\">" + esc(label) + (cnt ? " <span class='cnt'>" + cnt + "</span>" : '') + "</div>";
+}
+function _panel(id, body, active) {
+  return "<div class='panel" + (active ? ' active' : '') + "' data-panel='" + id + "'>" + body + "</div>";
+}
+function _resumoBody(a, hb) {
+  const grid = _grid([
+    ['Horário', _fmtDateFull(hb.updatedAt)],
+    ['Status', "<span style='color:" + _corStatus(hb.status) + "'>" + esc(hb.status || '—') + "</span>"],
+    ['Mercado', _mercadoLabel(hb.market)], ['Alertas Escudo', _fmtNum(hb.escudo, 0)],
+    ['Oportunidades', _fmtNum(hb.radar, 0)], ['Duração (s)', _fmtNum(hb.dur, 1)],
+  ]);
+  const atalhos = "<div class='sec-head' style='margin-top:18px'><h2>Atalhos</h2></div><div class='card'>"
+    + "<div style='display:flex;gap:10px;flex-wrap:wrap'>"
+    + "<span class='btn' onclick='_refresh()'>🔄 Atualizar agora</span>"
+    + "<a class='btn' href='" + GITHUB_ACTIONS + "' target='_blank'>▶️ Rodar / ver Actions</a>"
+    + "<span class='btn' onclick='_limparLogs()'>🧾 Limpar logs</span></div>"
+    + "<div class='muted' id='refStatus' style='margin-top:11px'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</div></div>";
+  return "<div class='sec-head'><h2>Resumo da última execução</h2><span class='hint'>" + _fmtDateTime(hb.updatedAt)
+    + (hb.runUrl ? " · <a href='" + esc(hb.runUrl) + "'>GitHub »</a>" : '') + "</span></div>"
+    + "<div class='card'>" + grid + (hb.notes ? "<div class='motivo'><span class='ic'>💡</span> " + esc(hb.notes) + "</div>" : '') + "</div>"
+    + atalhos;
+}
+
 function _inner() {
   const a = _avaliar(), hb = a.hb || {};
-  const hero = "<div class='hero' style='background:linear-gradient(135deg," + a.cor + "," + a.cor2 + ")'>"
-    + "<div class='emoji'>" + a.emoji + "</div><h1>" + esc(a.titulo) + "</h1>"
-    + "<div class='subh'>Última execução " + _idadeTxt(a.idade) + " · " + _fmtDateFull(hb.updatedAt) + "</div>"
-    + "<div class='hstats'>"
-    + "<div class='hstat'><div class='l'>Mercado</div><div class='v'>" + _mercadoLabel(hb.market) + "</div></div>"
-    + "<div class='hstat'><div class='l'>Escudo</div><div class='v'>" + _fmtNum(hb.escudo, 0) + "</div></div>"
-    + "<div class='hstat'><div class='l'>Oportunidades</div><div class='v'>" + _fmtNum(hb.radar, 0) + "</div></div>"
-    + "<div class='hstat'><div class='l'>Duração</div><div class='v'>" + _fmtNum(hb.dur, 1) + "s</div></div>"
+  const E = _buildEscudo(), R = _buildRadar(), D = _buildDiag(), L = _buildLogs();
+  const hero = "<div class='hero'><div class='hero-top'>"
+    + "<div class='brand'><div class='logo'>📡</div><div><h1 class='font-display'>Motor ResearchDeOpcoes</h1>"
+    + "<div class='subtitle'>Escudo · Radar · raio-X do Monte Carlo</div></div></div>" + _statusPill(a) + "</div>"
+    + "<div class='kpis'>"
+    + _kpi('Mercado', _mercadoLabel(hb.market), 'Pregão ' + PREGAO_LABEL, '')
+    + _kpi('Escudo', String(E.n), E.c.CRITICO + ' crítico · ' + E.c.ALERTA + ' alerta', E.c.CRITICO > 0 ? 'red' : '')
+    + _kpi('Radar', String(R.n), 'oportunidades', 'cyan')
+    + _kpi('Diagnóstico', String(D.n), D.ind + ' indicado(s)', '')
     + "</div></div>";
-  const toolbar = "<div class='toolbar'><button class='btn' onclick='_refresh()'>↻ Atualizar agora</button>"
-    + "<span class='muted' id='refStatus'>atualiza sozinho a cada " + Math.round(REFRESH_S / 60) + " min</span></div>";
-  const resumo = _section('Resumo da última execução', (hb.runUrl ? "<a href='" + esc(hb.runUrl) + "'>GitHub »</a>" : ''),
-    _grid([
-      ['Horário', _fmtDateFull(hb.updatedAt)],
-      ['Status', "<span style='color:" + _corStatus(hb.status) + "'>" + esc(hb.status || '—') + "</span>"],
-      ['Mercado', _mercadoLabel(hb.market)],
-      ['Alertas Escudo', _fmtNum(hb.escudo, 0)],
-      ['Oportunidades', _fmtNum(hb.radar, 0)],
-      ['Duração (s)', _fmtNum(hb.dur, 1)],
-    ]) + (hb.notes ? "<div class='acao' style='padding:2px 14px 10px'>" + esc(hb.notes) + "</div>" : ''));
-  const foot = "<div class='foot'>Pregão " + PREGAO_LABEL + " (seg–sex) · vigia avisa por e-mail se o motor parar"
-    + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes</div>";
-  return hero + toolbar + resumo + _cardEscudo() + _cardRadar() + _cardLogs() + foot;
+  const tabs = "<div class='tabsbar'><div class='tabs'>"
+    + _tab('resumo', 'Resumo', '') + _tab('escudo', 'Escudo', E.n) + _tab('radar', 'Radar', R.n)
+    + _tab('diag', 'Diagnóstico', D.n) + _tab('logs', 'Logs', '') + "</div></div>";
+  const panels = _panel('resumo', _resumoBody(a, hb), true) + _panel('escudo', E.html)
+    + _panel('radar', R.html) + _panel('diag', D.html) + _panel('logs', L.html);
+  const foot = "<div class='foot'>Pregão " + PREGAO_LABEL + " (seg–sex) · o vigia avisa por e-mail se o motor parar"
+    + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes · não é recomendação de investimento</div>";
+  return hero + tabs + panels + foot;
 }
 
 // Chamado pelo CLIENTE via google.script.run — devolve só o HTML do painel.
@@ -534,15 +628,20 @@ function getPainel() {
 
 function _render() {
   // Refresh SEM reload: busca o HTML novo via google.script.run e troca o DOM.
-  // Evita a navegação do iframe sandbox (que expira o token e zera a tela).
+  // O estado da aba ativa fica no cliente (window.__tab) e é reaplicado após cada
+  // refresh, então o auto-refresh não joga você de volta pro Resumo.
   const script = "<script>"
-    + "function _apply(html){var el=document.getElementById('painel');if(el&&html)el.innerHTML=html;}"
+    + "window.__tab='resumo';"
+    + "function _showTab(name){var T=document.querySelectorAll('.tab');for(var i=0;i<T.length;i++)T[i].classList.toggle('active',T[i].getAttribute('data-p')===name);"
+    + "var P=document.querySelectorAll('.panel');for(var j=0;j<P.length;j++)P[j].classList.toggle('active',P[j].getAttribute('data-panel')===name);}"
+    + "function _tab(name){window.__tab=name;_showTab(name);try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}}"
+    + "function _apply(html){var el=document.getElementById('painel');if(el&&html){el.innerHTML=html;_showTab(window.__tab||'resumo');}}"
     + "function _refresh(){var s=document.getElementById('refStatus');if(s)s.textContent='atualizando…';"
     + "google.script.run.withSuccessHandler(_apply).withFailureHandler(function(){"
     + "var s2=document.getElementById('refStatus');if(s2)s2.textContent='sem conexão — tentando de novo';}).getPainel();}"
     // Filtra os logs no cliente (sem ida ao servidor) por categoria do data-cat.
-    + "function _flog(btn,cat){var b=document.querySelectorAll('.fbtn');for(var i=0;i<b.length;i++)b[i].className='fbtn';"
-    + "if(btn)btn.className='fbtn on';var L=document.querySelectorAll('.log');"
+    + "function _flog(btn,cat){var b=document.querySelectorAll('.lf');for(var i=0;i<b.length;i++)if(!b[i].classList.contains('danger'))b[i].classList.remove('on');"
+    + "if(btn)btn.classList.add('on');var L=document.querySelectorAll('.log');"
     + "for(var j=0;j<L.length;j++){var c=L[j].getAttribute('data-cat');L[j].style.display=(cat==='todos'||c===cat)?'':'none';}}"
     // Apaga os logs (com confirmação) e recarrega o painel.
     + "function _limparLogs(){if(!confirm('Apagar TODO o histórico de logs? Não dá para desfazer.\\nO motor volta a gravar no próximo ciclo.'))return;"
@@ -552,88 +651,164 @@ function _render() {
     + "setInterval(_refresh," + (REFRESH_S * 1000) + ");"
     + "</script>";
   return "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
-    + "<meta name='viewport' content='width=device-width, initial-scale=1'><style>" + _css() + "</style></head>"
+    + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    + "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+    + "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap' rel='stylesheet'>"
+    + "<style>" + _css() + "</style></head>"
     + "<body><div class='wrap' id='painel'>" + _inner() + "</div>" + script + "</body></html>";
 }
 
 function _css() {
-  return ""
-    + "*{box-sizing:border-box}"
-    + "body{margin:0;background:#eef1f5;color:#0f172a;line-height:1.45;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}"
-    + ".wrap{max-width:1320px;margin:0 auto;padding:18px}"
-    + ".hero{border-radius:18px;padding:22px 22px;color:#fff;box-shadow:0 12px 34px rgba(2,6,23,.20)}"
-    + ".hero .emoji{font-size:42px;line-height:1}"
-    + ".hero h1{margin:6px 0 2px;font-size:25px;font-weight:800;letter-spacing:.2px}"
-    + ".hero .subh{opacity:.92;font-size:13.5px}"
-    + ".hstats{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}"
-    + ".hstat{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:12px;padding:9px 14px;min-width:104px;flex:1 1 auto}"
-    + ".hstat .l{font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.4px}"
-    + ".hstat .v{font-size:18px;font-weight:700;margin-top:2px}"
-    + ".toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 2px 2px;flex-wrap:wrap}"
-    + ".muted{color:#64748b;font-size:13px}"
-    + ".btn{appearance:none;border:1px solid #d7dde6;background:#fff;color:#0f172a;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(2,6,23,.06)}"
-    + ".btn:active{transform:translateY(1px)}"
-    + ".sec{margin:18px 0}"
-    + ".sechead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 2px 10px;font-weight:800;font-size:17px}"
-    + ".sechead .badge{font-size:12.5px;font-weight:700;color:#64748b}"
-    + ".cards{display:grid;grid-template-columns:1fr;gap:18px;align-items:start}"
-    + ".item{background:#fff;border:1px solid #e5e7eb;border-left:5px solid #cbd5e1;border-radius:14px;padding:14px 16px;box-shadow:0 1px 3px rgba(2,6,23,.06)}"
-    + ".item .row1{display:flex;align-items:center;flex-wrap:wrap;gap:8px}"
-    + ".tk{font-weight:800;font-size:16px}"
-    + ".op{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a;font-size:13px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:1px 7px}"
-    + ".opc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:0 6px}"
-    + ".sub{color:#64748b;font-size:12.5px;margin-top:3px}"
-    + ".nivel{margin-left:auto;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.3px}"
-    + ".tag{margin-left:auto;font-size:11.5px;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:999px;padding:3px 10px}"
-    + ".chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}"
-    + ".chip{font-size:12px;background:#f1f5f9;border:1px solid #e6ebf2;border-radius:8px;padding:3px 9px;color:#334155;white-space:nowrap}"
-    + ".chip b{color:#0f172a}"
-    + ".mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;margin-top:11px;background:#eef2f7;border:1px solid #eef2f7;border-radius:10px;overflow:hidden}"
-    + ".m{background:#fff;padding:8px 11px}"
-    + ".ml{font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px}"
-    + ".mv{font-size:14.5px;font-weight:700;margin-top:2px}"
-    + ".trava{margin-top:11px;background:#ecfdf5;border:1px solid #d1fae5;border-radius:10px;padding:10px 12px}"
-    + ".travah{font-weight:700;margin-bottom:4px}"
-    + ".travah .hint{color:#64748b;font-weight:400;font-size:12px}"
-    + ".leg{font-size:13px;margin:2px 0}"
-    + ".analise{margin-top:10px;color:#334155;font-size:13px;background:#f8fafc;border-radius:8px;padding:8px 10px}"
-    + ".acao{margin-top:7px;color:#475569;font-size:12.5px}"
-    + ".empty{padding:26px 16px;text-align:center;color:#64748b;background:#fff;border:1px solid #e5e7eb;border-radius:14px}"
-    + ".logs{background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden}"
-    + ".log{display:flex;gap:10px;align-items:flex-start;padding:8px 14px;border-top:1px solid #f1f5f9;font-size:12.5px}"
-    + ".log:first-child{border-top:none}"
-    + ".log .dot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:0 0 auto}"
-    + ".log .t{color:#94a3b8;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:82px}"
-    + ".log .sv{font-weight:700;color:#64748b;min-width:92px}"
-    + ".log .msg{color:#334155}"
-    + ".foot{color:#94a3b8;font-size:12px;text-align:center;margin:20px 4px}"
-    + "a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}"
-    // Justificativa embasada (veredito sempre visível + 'Por que?' expansível)
-    + ".whybox{margin-top:10px}"
-    + ".verdict{padding:9px 12px;border-radius:9px;background:#eef2ff;border:1px solid #e0e7ff;font-size:12.5px;font-weight:600;color:#1e293b}"
-    + ".why{margin-top:6px;border:1px solid #e3e8ef;border-radius:9px;overflow:hidden}"
-    + ".why>summary{cursor:pointer;list-style:none;padding:8px 12px;font-size:12px;font-weight:700;color:#3730a3;background:#f5f7ff;user-select:none}"
-    + ".why>summary::-webkit-details-marker{display:none}"
-    + ".why>summary::after{content:'▾';float:right;opacity:.6}"
-    + ".why[open]>summary::after{content:'▴'}"
-    + ".reasons{margin:0;padding:9px 14px 5px 28px}"
-    + ".reasons li{font-size:12.5px;color:#334155;margin-bottom:6px}"
-    + ".reasons li b{color:#0f172a}"
-    // Barra de ações dos logs (filtro + limpar) e detalhe expansível por log
-    + ".logbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 2px 10px}"
-    + ".logfilter{display:flex;gap:6px;flex-wrap:wrap}"
-    + ".fbtn{appearance:none;border:1px solid #d7dde6;background:#fff;color:#475569;border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer}"
-    + ".fbtn.on{background:#0f172a;color:#fff;border-color:#0f172a}"
-    + ".btn-danger{appearance:none;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:10px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}"
-    + ".btn-danger:active{transform:translateY(1px)}"
-    + ".logdet{margin-top:3px}"
-    + ".logdet>summary{cursor:pointer;color:#2563eb;font-size:11.5px;list-style:none}"
-    + ".logdet>summary::-webkit-details-marker{display:none}"
-    + ".logdet pre{margin:6px 0 2px;padding:9px 11px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}"
-    + "@media (min-width:760px){.cards{grid-template-columns:repeat(2,1fr)}}"
-    + "@media (min-width:1160px){.cards{grid-template-columns:repeat(3,1fr)}}"
-    + "@media (max-width:560px){.wrap{padding:13px}.hero{padding:18px 16px}.hero h1{font-size:21px}"
-    + ".log{flex-wrap:wrap;gap:3px 10px}.log .sv{min-width:0}.log .msg{flex-basis:100%}}";
+  // Premium Glass — gradiente + cards de vidro (glassmorphism), abas, anéis e
+  // barra de cenário. Tema escuro. Cobre as classes novas e as dos explicadores.
+  return `
+:root{--violet:#8B5CF6;--violet2:#A78BFA;--cyan:#22D3EE;--green:#34D399;--amber:#FBBF24;--red:#F87171;
+--text:#EAF0FB;--muted:#97A3BD;--faint:#6B7796;--glass:rgba(255,255,255,.055);--glass2:rgba(255,255,255,.09);
+--stroke:rgba(255,255,255,.12);--stroke2:rgba(255,255,255,.18)}
+*{box-sizing:border-box}
+body{margin:0;color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;
+font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+background:radial-gradient(1200px 700px at 12% -8%,rgba(139,92,246,.30),transparent 60%),
+radial-gradient(1000px 680px at 100% 0%,rgba(34,211,238,.20),transparent 55%),
+radial-gradient(900px 700px at 50% 120%,rgba(96,165,250,.16),transparent 60%),
+linear-gradient(160deg,#0A0E1C 0%,#10132C 45%,#1B1740 100%);background-attachment:fixed;min-height:100vh}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 15px 60px}
+.font-display{font-family:'Sora','Inter',sans-serif}
+a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}
+/* HERO */
+.hero{position:relative;overflow:hidden;border-radius:22px;padding:19px 21px;
+background:linear-gradient(120deg,rgba(139,92,246,.16),rgba(34,211,238,.10));
+border:1px solid var(--stroke2);backdrop-filter:blur(18px);box-shadow:0 18px 50px rgba(3,6,20,.5)}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:22px;
+background:linear-gradient(135deg,var(--violet),var(--cyan));box-shadow:0 8px 24px rgba(139,92,246,.45)}
+.brand h1{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
+.brand .subtitle{font-size:12.5px;color:var(--muted);margin-top:1px}
+.statuspill{display:inline-flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;font-weight:700;font-size:13px;
+border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.12);color:#b8f5dd}
+.statuspill.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.12);color:#fde68a}
+.statuspill.bad{border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.14);color:#fecaca}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 0 0 currentColor;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}70%{box-shadow:0 0 0 9px rgba(255,255,255,0)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-top:17px}
+.kpi{background:var(--glass);border:1px solid var(--stroke);border-radius:15px;padding:12px 14px}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.kpi .v{font-size:23px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;font-family:'Sora'}
+.kpi .v.sm{font-size:18px}.kpi .d{font-size:11.5px;color:var(--faint);margin-top:2px}
+.kpi .v.green{color:var(--green)}.kpi .v.cyan{color:var(--cyan)}.kpi .v.amber{color:var(--amber)}.kpi .v.red{color:var(--red)}
+/* TABS */
+.tabsbar{position:sticky;top:8px;z-index:20;margin:16px 0 14px}
+.tabs{display:flex;gap:5px;padding:6px;border-radius:16px;background:rgba(10,14,28,.6);border:1px solid var(--stroke);
+backdrop-filter:blur(14px);overflow-x:auto;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.tab{flex:1;min-width:max-content;text-align:center;padding:10px 15px;border-radius:11px;cursor:pointer;
+font-weight:600;font-size:13.5px;color:var(--muted);white-space:nowrap;transition:.18s;user-select:none}
+.tab:hover{color:var(--text);background:var(--glass)}
+.tab.active{color:#0a0e1c;background:linear-gradient(135deg,var(--violet2),var(--cyan));box-shadow:0 8px 22px rgba(139,92,246,.4);font-weight:700}
+.tab .cnt{display:inline-block;margin-left:5px;font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(255,255,255,.16);font-weight:700}
+.tab.active .cnt{background:rgba(10,14,28,.25)}
+.panel{display:none}.panel.active{display:block;animation:fade .35s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* SECTIONS + CARDS */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:6px 2px 12px}
+.sec-head h2{font-size:16px;margin:0;font-weight:700;font-family:'Sora'}
+.sec-head .hint{font-size:12.5px;color:var(--muted)}
+.cards{display:grid;grid-template-columns:1fr;gap:13px;align-items:start}
+.card{background:var(--glass);border:1px solid var(--stroke);border-radius:18px;padding:16px 17px;
+backdrop-filter:blur(16px);box-shadow:0 12px 34px rgba(3,6,20,.32);transition:.2s}
+.card:hover{border-color:var(--stroke2);transform:translateY(-2px);box-shadow:0 18px 44px rgba(3,6,20,.45)}
+.card.lead-green{border-left:3px solid var(--green)}.card.lead-red{border-left:3px solid var(--red)}
+.card.lead-amber{border-left:3px solid var(--amber)}.card.lead-cyan{border-left:3px solid var(--cyan)}
+.row1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tk{font-size:18px;font-weight:800;font-family:'Sora';letter-spacing:.3px}
+.op{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#cdd6ea;background:var(--glass2);border:1px solid var(--stroke);border-radius:6px;padding:1px 7px}
+.tag{margin-left:auto;font-size:12px;font-weight:600;color:#b8f5dd;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);border-radius:999px;padding:3px 11px}
+.nivel{font-size:11.5px;font-weight:800;padding:4px 11px;border-radius:999px;letter-spacing:.3px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:5px}
+/* chips */
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+.chip{font-size:12px;font-weight:600;border:1px solid var(--stroke);background:var(--glass2);border-radius:999px;padding:4px 11px;color:#cdd6ea;white-space:nowrap}
+.chip b{font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.chip.green{color:#b8f5dd;border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.12)}
+.chip.red{color:#fecaca;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.12)}
+.chip.amber{color:#fde68a;border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.12)}
+.chip.violet{color:#ddd6fe;border-color:rgba(139,92,246,.4);background:rgba(139,92,246,.15)}
+.chip.cyan{color:#a5f3fc;border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.12)}
+/* grid de métricas */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;margin-top:12px;background:var(--stroke);border:1px solid var(--stroke);border-radius:12px;overflow:hidden}
+.m{background:rgba(12,16,30,.55);padding:9px 12px}
+.ml{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.4px}
+.mv{font-size:14.5px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+/* verdict: box (explicador) e pill (diagnóstico) */
+.verdict{padding:9px 12px;border-radius:11px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.28);font-size:12.5px;font-weight:600;color:#e9e6ff}
+.verdict.ok,.verdict.no{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;font-weight:700;font-size:13px;border:0}
+.verdict.ok{color:#0a0e1c;background:linear-gradient(135deg,#34D399,#22D3EE);box-shadow:0 6px 18px rgba(52,211,153,.35)}
+.verdict.no{color:#fecaca;background:rgba(248,113,113,.14);border:1px solid rgba(248,113,113,.4)}
+/* anéis */
+.gauges{display:flex;gap:18px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.gauge{display:flex;align-items:center;gap:11px}
+.ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;position:relative;flex:0 0 auto}
+.ring::before{content:"";position:absolute;inset:6px;border-radius:50%;background:#0c1020}
+.ring span{position:relative;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;font-family:'Sora'}
+.gl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.gd{font-size:11.5px;color:var(--faint);margin-top:2px;max-width:150px}
+.anchor{margin-left:auto;text-align:right}.anchor .av{font-weight:800;font-family:'Sora';font-size:15px;margin-top:3px;font-variant-numeric:tabular-nums}
+/* barra de cenário */
+.scn{margin-top:15px}
+.scn-h{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:7px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.track{position:relative;height:34px;border-radius:10px;border:1px solid var(--stroke);
+background:linear-gradient(90deg,rgba(248,113,113,.18),rgba(251,191,36,.12) 45%,rgba(52,211,153,.18))}
+.track .exer{position:absolute;left:0;top:0;bottom:0;border-radius:10px 0 0 10px;border-right:1px dashed rgba(248,113,113,.6);
+background:repeating-linear-gradient(45deg,rgba(248,113,113,.22),rgba(248,113,113,.22) 6px,rgba(248,113,113,.10) 6px,rgba(248,113,113,.10) 12px)}
+.mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--text);transform:translateX(-1px)}
+.mk.strike{background:var(--violet2);box-shadow:0 0 10px rgba(167,139,250,.8)}.mk.spot{background:var(--cyan)}
+.mk .lab{position:absolute;top:-19px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;font-weight:700;
+color:var(--violet2);background:rgba(10,14,28,.75);padding:1px 6px;border-radius:6px;border:1px solid rgba(167,139,250,.4)}
+.mk.spot .lab{color:var(--cyan);border-color:rgba(34,211,238,.4)}
+.scn-f{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-top:9px;font-variant-numeric:tabular-nums;color:var(--muted);flex-wrap:wrap}
+.scn-f b{color:var(--text);font-weight:700}
+/* expansível "como ler" + por que */
+.por,.why{margin-top:13px;border-top:1px solid var(--stroke);padding-top:11px}
+.por>summary,.why>summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--cyan);list-style:none;display:flex;align-items:center;gap:7px}
+.por>summary::-webkit-details-marker,.why>summary::-webkit-details-marker{display:none}
+.por>summary::before,.why>summary::before{content:"▸";transition:.2s;color:var(--violet2)}
+.por[open]>summary::before,.why[open]>summary::before{transform:rotate(90deg)}
+.por .body{font-size:13.5px;line-height:1.62;color:#cdd6ea;margin-top:10px}.por .body b{color:#fff}
+.whybox{margin-top:13px}
+.reasons{margin:10px 0 2px;padding-left:20px}
+.reasons li{font-size:13px;color:#cdd6ea;margin-bottom:7px;line-height:1.5}.reasons li b{color:#fff}
+.motivo{font-size:13px;color:#cdd6ea;margin-top:12px;line-height:1.55}.motivo .ic{color:var(--violet2)}
+/* trava */
+.trava{margin-top:13px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:13px;padding:12px 14px}
+.travah{font-weight:700;margin-bottom:6px}.travah .hint{color:var(--muted);font-weight:400;font-size:12px}
+.leg{font-size:13px;margin:3px 0;font-variant-numeric:tabular-nums}
+.opc{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#fde68a;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:6px;padding:0 6px}
+/* analise / acao / empty */
+.analise{margin-top:11px;color:#cdd6ea;font-size:13px;background:var(--glass);border:1px solid var(--stroke);border-radius:10px;padding:9px 11px}
+.acao{margin-top:8px;color:var(--muted);font-size:12.5px}
+.empty{text-align:center;color:var(--muted);padding:34px 12px;font-size:14px;background:var(--glass);border:1px solid var(--stroke);border-radius:16px}
+/* botões */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:11px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text);background:var(--glass2);border:1px solid var(--stroke2)}
+.btn:hover{background:rgba(255,255,255,.14)}.muted{color:var(--muted);font-size:12.5px}
+/* logs */
+.logbar{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+.lf{padding:7px 13px;border-radius:10px;font-size:12.5px;cursor:pointer;border:1px solid var(--stroke);background:var(--glass);color:var(--muted);font-weight:600;appearance:none}
+.lf.on{color:#0a0e1c;background:linear-gradient(135deg,var(--violet2),var(--cyan))}
+.lf.danger{color:#fecaca;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.1)}
+.log{display:grid;grid-template-columns:104px 96px 1fr;gap:12px;padding:11px 14px;border-radius:12px;background:var(--glass);border:1px solid var(--stroke);margin-bottom:7px;font-size:13px;align-items:center}
+.log .t{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.log .msg{color:#cdd6ea}
+.badge{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:999px;text-align:center;letter-spacing:.4px}
+.b-ok{background:rgba(52,211,153,.15);color:#86efac}.b-crit{background:rgba(248,113,113,.18);color:#fca5a5}
+.b-warn{background:rgba(251,191,36,.16);color:#fcd34d}.b-info{background:rgba(96,165,250,.15);color:#93c5fd}
+.logdet{margin-top:5px}
+.logdet>summary{cursor:pointer;color:var(--cyan);font-size:11.5px;list-style:none}
+.logdet>summary::-webkit-details-marker{display:none}
+.logdet pre{margin:7px 0 2px;padding:10px 12px;background:rgba(2,6,18,.6);color:#cdd6ea;border:1px solid var(--stroke);border-radius:9px;font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
+.foot{text-align:center;color:var(--faint);font-size:12px;margin-top:26px;line-height:1.7}
+@media(min-width:980px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.log{grid-template-columns:1fr;gap:4px}.log .t,.badge{justify-self:start}}
+`;
 }
 
 // ===========================================================================
