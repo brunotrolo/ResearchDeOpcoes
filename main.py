@@ -278,6 +278,26 @@ def _rad_panel_row(ts: str, o: dict) -> list:
     })
 
 
+_TREND_PT_DIAG = {"ALTA": "ALTA", "NEUTRO": "NEUTRO", "REPIQUE_BAIXA": "REPIQUE↓", "BAIXA": "BAIXA"}
+
+
+def _pct_txt(x):
+    """Fração (0..1) -> '44%' didático; None/NaN -> None."""
+    return f"{round(x * 100)}%" if (isinstance(x, (int, float)) and x == x) else None
+
+
+def _diag_panel_row(ts: str, d: dict) -> list:
+    return _row_for(config.DIAGNOSTICO_HEADER, {
+        "ATUALIZADO_EM": ts, "TICKER": d.get("ticker"),
+        "VEREDITO": "✅ Indicado" if d.get("veredito") == "INDICADO" else "⛔ Rejeitado",
+        "TENDENCIA": _TREND_PT_DIAG.get(d.get("trend_label"), d.get("trend_label") or "—"),
+        "IV_RANK": (round(d["iv_rank"]) if isinstance(d.get("iv_rank"), (int, float))
+                    and d["iv_rank"] == d["iv_rank"] else None),
+        "CHANCE_EXERCICIO": _pct_txt(d.get("poe")), "CHANCE_TOQUE": _pct_txt(d.get("toque")),
+        "POR_QUE": d.get("motivo"), "MONTE_CARLO": d.get("mc_frase"),
+    })
+
+
 # --- logs didáticos (passo a passo, p/ auditoria detalhada) -----------------
 def _log_escudo_alerta(log: Logbook, a: dict) -> None:
     if str(a.get("option_ticker", "")).startswith("PORTFOLIO"):
@@ -586,6 +606,20 @@ def _run_radar(log: Logbook, tz, summary: dict, cfg_sheet: dict) -> None:
                      o.get("dte"), o.get("volume_fin")] for o in opps]
             sheets_client.append_rows(config.TAB_HIST_RADAR, hist, header=_RADAR_HIST_HEADER)
             log.info("RADAR", f"{len(hist)} linha(s) em {config.TAB_HIST_RADAR} + painel atualizado")
+
+    # Raio-X didático: 1 linha por ticker analisado (veredito + motivo + Monte Carlo).
+    # Nunca derruba o ciclo — é um painel auxiliar.
+    try:
+        diag = radar.diagnosticar_universo(df_dados, df_scanner, cfg=radar_cfg, mc=sim,
+                                           vol_map=vmap, poe_max=poe_max, opps=opps)
+        if diag and not config.RUNTIME.dry_run:
+            sheets_client.replace_tab(config.TAB_DIAGNOSTICO, config.DIAGNOSTICO_HEADER,
+                                      [_diag_panel_row(ts, d) for d in diag])
+            ind = sum(1 for d in diag if d.get("veredito") == "INDICADO")
+            log.info("RADAR", f"{len(diag)} ticker(s) no raio-X {config.TAB_DIAGNOSTICO} "
+                     f"({ind} indicado(s), {len(diag) - ind} rejeitado(s))")
+    except Exception as exc:
+        log.error("RADAR", "Falha ao gravar RADAR_DIAGNOSTICO (segue o ciclo)", {"erro": str(exc)})
 
     enviar = _is_true(cfg_sheet.get("ENVIAR_EMAIL")) and _is_true(cfg_sheet.get("ENVIAR_EMAIL_RADAR"))
     if config.RUNTIME.dry_run:
