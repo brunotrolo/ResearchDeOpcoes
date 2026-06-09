@@ -1,9 +1,10 @@
 name: Motor (Escudo + Radar)
 
 # Roda o motor na nuvem do GitHub — sem depender do Dell.
-#   - schedule: de hora em hora, ~10h-18h BRT (UTC-3), seg-sex. O próprio
-#     motor consulta a OpLab (/market/status) e encerra se o mercado estiver
-#     fechado, então execuções fora do pregão são baratas (no-op).
+#   - schedule: de hora em hora 10h–16h + 16h30 BRT (UTC-3), seg-sex. O motor
+#     gateia por HORÁRIO (dias úteis 10:00–16:30, MARKET_GATE_MODE=clock) — sem
+#     depender da API de status do mercado, que se mostrou instável. Execuções
+#     fora da janela encerram cedo (no-op barato).
 #   - workflow_dispatch: roda manualmente (pelo site do GitHub, abre no celular).
 #     Opções: "normal" (respeita o pregão), "homologar" (ignora mercado fechado
 #     e roda tudo de verdade) e "email_teste" (só manda um e-mail de teste).
@@ -19,7 +20,8 @@ env:
 
 on:
   schedule:
-    - cron: "0 13-21 * * 1-5"   # 10:00–18:00 BRT, seg–sex
+    - cron: "0 13-19 * * 1-5"   # 10:00–16:00 BRT (de hora em hora), seg–sex
+    - cron: "30 19 * * 1-5"     # 16:30 BRT — fecha a janela do pregão
   workflow_dispatch:
     inputs:
       acao:

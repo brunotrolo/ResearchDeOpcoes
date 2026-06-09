@@ -11,8 +11,8 @@ parâmetros da aba CONFIG, veja [`CONFIG.md`](CONFIG.md).
 
 De hora em hora, durante o pregão, o motor:
 
-1. Confere se o **mercado está aberto** (relógio de ponto na OpLab). Se estiver
-   fechado, encerra para poupar processamento.
+1. Confere se está **dentro do pregão** (relógio de ponto: dias úteis 10:00–16:30).
+   Fora do horário, encerra para poupar processamento.
 2. Roda a **defesa** das suas posições abertas (🛡️ **Escudo**).
 3. Roda a **prospecção** de novas oportunidades de venda de PUT (🎯 **Radar**).
 4. Atualiza os **painéis** na planilha, grava o **histórico** e os **LOGS**, e

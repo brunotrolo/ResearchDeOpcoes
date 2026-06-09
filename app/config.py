@@ -88,6 +88,12 @@ class Runtime:
     dry_run: bool = _env_bool("DRY_RUN", False)        # True = não envia e-mail, não grava planilha
     force_run: bool = _env_bool("FORCE_RUN", False)    # True = roda mesmo com mercado fechado (homologação)
     email_test_only: bool = _env_bool("EMAIL_TEST_ONLY", False)  # True = só manda um e-mail de teste
+    # Portão de mercado: "clock" (padrão — dias úteis dentro do horário, SEM depender
+    # de API) ou "oplab" (consulta /market/status). A API de status do mercado se
+    # mostrou instável e derrubava o motor durante o pregão; o relógio é determinístico.
+    market_gate_mode: str = _env("MARKET_GATE_MODE", "clock")
+    trading_start: str = _env("TRADING_START", "10:00")   # HH:MM no fuso MARKET_TZ
+    trading_end: str = _env("TRADING_END", "16:30")       # HH:MM no fuso MARKET_TZ
     state_dir: Path = BASE_DIR / "state"
     log_file: Path = BASE_DIR / "logs" / "motor.log"
     lock_file: Path = BASE_DIR / "state" / "motor.lock"

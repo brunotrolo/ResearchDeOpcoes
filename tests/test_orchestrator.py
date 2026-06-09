@@ -63,7 +63,8 @@ def _runtime(**over):
     """Cria um RUNTIME (namespace) baseado no real, com sobrescritas (RUNTIME é frozen)."""
     r = app_main.config.RUNTIME
     base = dict(timezone=r.timezone, dry_run=r.dry_run, force_run=r.force_run,
-                email_test_only=r.email_test_only, state_dir=r.state_dir,
+                email_test_only=r.email_test_only, market_gate_mode=r.market_gate_mode,
+                trading_start=r.trading_start, trading_end=r.trading_end, state_dir=r.state_dir,
                 log_file=r.log_file, lock_file=r.lock_file, state_file=r.state_file)
     base.update(over)
     return SimpleNamespace(**base)

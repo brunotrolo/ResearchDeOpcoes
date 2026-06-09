@@ -173,7 +173,8 @@ python -m pytest -q
 .venv\Scripts\python.exe main.py            # rodar agora
 .venv\Scripts\python.exe -m pytest -q       # rodar os testes (59)
 ```
-O motor **só processa com o mercado aberto** (`/market/status == "A"`); fora
+O motor **só processa dentro do pregão** (relógio de ponto: dias úteis
+10:00–16:30, `MARKET_GATE_MODE=clock`; sem depender da API de mercado); fora
 disso, encerra na hora. Tudo é registrado na aba **LOGS** para debug.
 
 ## Configuração

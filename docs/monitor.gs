@@ -40,7 +40,11 @@ const EMAIL_ALERTA = 'brunotrolo@gmail.com';
 const TZ = 'America/Sao_Paulo';
 const ABA_MONITOR = 'MONITOR', ABA_LOGS = 'LOGS', ABA_PESC = 'PAINEL_ESCUDO', ABA_PRAD = 'PAINEL_RADAR';
 const LIMITE_MIN = 75;
-const PREGAO_INI = 10, PREGAO_FIM = 18;
+// Janela do pregão (dias úteis, fuso TZ): vigia só alerta dentro dela. Apenas
+// pelo relógio — sem depender da API de status do mercado.
+const PREGAO_INI_MIN = 10 * 60;        // 10:00
+const PREGAO_FIM_MIN = 16 * 60 + 30;   // 16:30
+const PREGAO_LABEL = '10h–16h30';
 const REFRESH_S = 120;
 const GITHUB_ACTIONS = 'https://github.com/brunotrolo/ResearchDeOpcoes/actions';
 
@@ -79,9 +83,10 @@ function _ultimas(aba, n, ncols) {
 // ===========================================================================
 function _ehPregao() {
   const a = new Date();
-  const dia = parseInt(Utilities.formatDate(a, TZ, 'u'), 10);
-  const hora = parseInt(Utilities.formatDate(a, TZ, 'H'), 10);
-  return dia >= 1 && dia <= 5 && hora >= PREGAO_INI && hora < PREGAO_FIM;
+  const dia = parseInt(Utilities.formatDate(a, TZ, 'u'), 10);   // 1=seg ... 7=dom
+  const min = parseInt(Utilities.formatDate(a, TZ, 'H'), 10) * 60
+            + parseInt(Utilities.formatDate(a, TZ, 'm'), 10);
+  return dia >= 1 && dia <= 5 && min >= PREGAO_INI_MIN && min <= PREGAO_FIM_MIN;
 }
 
 function _idadeMin(updatedAt) {
@@ -515,7 +520,7 @@ function _inner() {
       ['Oportunidades', _fmtNum(hb.radar, 0)],
       ['Duração (s)', _fmtNum(hb.dur, 1)],
     ]) + (hb.notes ? "<div class='acao' style='padding:2px 14px 10px'>" + esc(hb.notes) + "</div>" : ''));
-  const foot = "<div class='foot'>Pregão " + PREGAO_INI + "h–" + PREGAO_FIM + "h (seg–sex) · vigia avisa por e-mail se o motor parar"
+  const foot = "<div class='foot'>Pregão " + PREGAO_LABEL + " (seg–sex) · vigia avisa por e-mail se o motor parar"
     + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes</div>";
   return hero + toolbar + resumo + _cardEscudo() + _cardRadar() + _cardLogs() + foot;
 }
