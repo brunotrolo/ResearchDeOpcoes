@@ -3,7 +3,8 @@
 Ordem de execução (chamado pelo GitHub Actions / Task Scheduler):
 
     1. Lock-file (execução única).
-    2. RELÓGIO DE PONTO: OpLab /market/status. Se != "A", encerra.
+    2. RELÓGIO DE PONTO: por horário (dias úteis 10:00–16:30, padrão) ou OpLab
+       /market/status (MARKET_GATE_MODE=oplab). Fora do pregão, encerra.
     3. ESCUDO: lê PAINEL_ATIVAS (+ correlação) -> defesa por perna e carteira.
     4. RADAR: lê seleções -> filtra oportunidades de PUT.
     5. Heartbeat na aba MONITOR + flush dos LOGS.
@@ -616,19 +617,19 @@ def run() -> int:
 
     try:
         with state.run_lock():
-            # --- Relógio de ponto ---
+            # --- Relógio de ponto (padrão: por horário, sem depender de API) ---
             try:
                 market = market_gate.check_market()
             except Exception as exc:
-                log.error("MARKET_GATE", "Falha ao consultar OpLab — abortando por segurança", {"erro": str(exc)})
+                log.error("MARKET_GATE", "Falha no portão de mercado — abortando por segurança", {"erro": str(exc)})
                 summary["market"] = "ERRO"
                 status_final = "ERROR"
                 rc = 2
                 return rc
             summary["market"] = market.code
-            log.info("MARKET_GATE", f"market_status={market.code}", market.raw)
+            log.info("MARKET_GATE", f"modo={config.RUNTIME.market_gate_mode} market_status={market.code}", market.raw)
             if not market.is_open and not config.RUNTIME.force_run:
-                log.info("MARKET_GATE", "Mercado fechado — encerrando para poupar processamento", {"code": market.code})
+                log.info("MARKET_GATE", "Fora do horário de pregão — encerrando para poupar processamento", {"code": market.code})
                 status_final = "FECHADO"
                 return 0
             if not market.is_open and config.RUNTIME.force_run:
