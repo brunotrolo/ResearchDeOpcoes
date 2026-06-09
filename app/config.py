@@ -190,7 +190,8 @@ PAINEL_RADAR_HEADER = ["ATUALIZADO_EM", "TICKER", "OPCAO", "EXPIRY", "DTE", "STR
                        "TRAVA_RISCO_MAX", "TRAVA_RETORNO_RISCO", "MOTIVO", "ANALISE", "TOQUE"]
 # Raio-X didático do Radar: 1 linha por ticker do DADOS_ATIVOS.
 DIAGNOSTICO_HEADER = ["ATUALIZADO_EM", "TICKER", "VEREDITO", "TENDENCIA", "IV_RANK",
-                      "CHANCE_EXERCICIO", "CHANCE_TOQUE", "POR_QUE", "MONTE_CARLO"]
+                      "SPOT", "STRIKE", "MARGEM", "CHANCE_EXERCICIO", "CHANCE_TOQUE",
+                      "CENARIO_30D", "POR_QUE", "COMO_LER"]
 
 # Cabeçalho fixo da aba LOGS (conforme especificado pelo Bruno)
 LOGS_HEADER = ["UPDATED_AT", "SERVICE", "STATUS", "SUMMARY", "CONTEXT"]
