@@ -10,7 +10,7 @@ Motor quantitativo de análise de opções da **B3**, com dupla função:
   alvo e líquida, e monta a **Trava de Alta com PUT** (risco limitado).
 
 O motor lê o painel no **Google Sheets**, consulta o **relógio de ponto** na
-OpLab e dispara **alertas por e-mail**. Roda de hora em hora no pregão.
+OpLab e dispara **alertas por e-mail**. Roda **sob demanda** (execução manual).
 
 📚 Documentação: [`docs/GUIA_FUNCIONAL.md`](docs/GUIA_FUNCIONAL.md) (como usar, sem
 código) · [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) (técnico) ·
@@ -23,8 +23,8 @@ de PC ligado) ou **local no Windows**.
 
 ## ☁️ Rodar na nuvem (GitHub Actions) — recomendado, sem Dell
 
-O motor roda sozinho na infraestrutura do GitHub, de hora em hora durante o
-pregão. Você não precisa de PC ligado e controla tudo pelo site do GitHub
+O motor roda na infraestrutura do GitHub **sob demanda** (execução manual, sem
+agendamento). Você não precisa de PC ligado e controla tudo pelo site do GitHub
 (que abre no celular). Os segredos ficam **criptografados** no GitHub.
 
 ### Passo 1 — Cadastrar os segredos
@@ -45,10 +45,10 @@ Aba **Actions** → workflow **"Motor (Escudo + Radar)"** → **Run workflow** �
 deixe **"Modo teste?"** marcado → **Run**. Veja os logs do run (ele lê tudo,
 mas **não** envia e-mail nem grava). Confira também a aba **LOGS** da planilha.
 
-### Passo 3 — Deixar no ar
-Pronto: as execuções **agendadas** (10h–18h, seg–sex) já rodam pra valer
-automaticamente. Para um teste real manual, rode pelo **Run workflow** com
-**"Modo teste?"** desmarcado.
+### Passo 3 — Rodar
+Não há agendamento: a execução é **manual**. Na aba **Actions → Motor → Run
+workflow**, escolha a ação: `normal` (respeita o pregão 10:00–16:30), `homologar`
+(roda a qualquer hora) ou `email_teste`.
 
 > 🔐 Depois que estiver rodando, **gere uma chave nova** do Service Account e um
 > **token novo** na OpLab (eles passaram pelo chat) e atualize os segredos.

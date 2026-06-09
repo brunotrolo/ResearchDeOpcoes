@@ -179,9 +179,9 @@ vire `1.0`.
 
 ## Deploy: nuvem (GitHub Actions) ou local (Windows)
 
-**Nuvem (recomendado, `.github/workflows/motor.yml`):** roda de hora em hora
-(cron 13–21 UTC = 10h–18h BRT, seg–sex) na infraestrutura do GitHub. Segredos
-em GitHub Secrets (token, credenciais JSON, e-mail). O estado de dedupe é
+**Nuvem (recomendado, `.github/workflows/motor.yml`):** roda **sob demanda**
+(execução manual via `workflow_dispatch` — sem agendamento) na infraestrutura do
+GitHub. Segredos em GitHub Secrets (token, credenciais JSON, e-mail). O estado de dedupe é
 persistido entre execuções via `actions/cache` (cada run é efêmero). `concurrency`
 evita sobreposição (substitui o lock-file). `workflow_dispatch` permite rodar
 manualmente com modo dry-run. Não depende de PC ligado.

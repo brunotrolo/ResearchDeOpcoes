@@ -624,8 +624,8 @@ function _inner() {
     + _tab('diag', 'Diagnóstico', D.n) + _tab('logs', 'Logs', '') + "</div></div>";
   const panels = _panel('resumo', _resumoBody(a, hb), true) + _panel('escudo', E.html)
     + _panel('radar', R.html) + _panel('diag', D.html) + _panel('logs', L.html);
-  const foot = "<div class='foot'>Pregão " + PREGAO_LABEL + " (seg–sex) · o vigia avisa por e-mail se o motor parar"
-    + " · <a href='" + GITHUB_ACTIONS + "'>Actions</a><br>motor ResearchDeOpcoes · não é recomendação de investimento</div>";
+  const foot = "<div class='foot'>Execução manual via <a href='" + GITHUB_ACTIONS + "'>GitHub Actions</a> · pregão " + PREGAO_LABEL
+    + "<br>motor ResearchDeOpcoes · não é recomendação de investimento</div>";
   return hero + tabs + panels + foot;
 }
 
@@ -822,9 +822,15 @@ color:var(--violet2);background:rgba(10,14,28,.75);padding:1px 6px;border-radius
 }
 
 // ===========================================================================
-// Dead-man's switch
+// Dead-man's switch (DESLIGADO — motor é manual)
 // ===========================================================================
+// O motor não tem mais agendamento automático (roda só manualmente via GitHub
+// Actions). Sem schedule, o "motor parado durante o pregão" é o estado ESPERADO,
+// então o vigia perderia o sentido e inundaria o e-mail de "ATRASADO".
+// Para reativar (caso volte a agendar): troque VIGIA_ATIVO para true.
+const VIGIA_ATIVO = false;
 function verificarHeartbeat() {
+  if (!VIGIA_ATIVO) return;   // motor manual: não dispara alerta de "atrasado"
   const a = _avaliar();
   const critico = a.titulo.indexOf('ATRASADO') === 0 || a.titulo.indexOf('ERRO') === 0 || a.titulo === 'SEM DADOS';
   if (a.pregao && critico) {
