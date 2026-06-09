@@ -417,6 +417,16 @@ function _ring(pct, color, label, desc) {
 }
 function _ringColor(p) { return p == null ? 'var(--muted)' : p <= 25 ? 'var(--green)' : p <= 50 ? 'var(--amber)' : 'var(--red)'; }
 function _toqueColor(p) { return p == null ? 'var(--muted)' : p <= 40 ? 'var(--green)' : p <= 70 ? 'var(--amber)' : 'var(--red)'; }
+// O Sheets converte "44%"/"-3,7%" em fração (0.44/-0.037) com formato %. Ao ler o
+// valor cru, devolvemos sempre em PERCENTUAL: fração (|v|<=1) vira ×100; texto
+// "44%" o _num já resolve; número já em % passa direto.
+function _pctVal(v) {
+  if (v === '' || v == null) return null;
+  if (typeof v === 'number') return (v > -1.0001 && v < 1.0001) ? v * 100 : v;
+  return _num(v);
+}
+function _moneyVal(v) { return (v === '' || v == null) ? '—' : (typeof v === 'number' ? _fmtMoney(v) : esc(v)); }
+function _margemTxt(v) { const m = _pctVal(v); return m == null ? esc(v) : (m >= 0 ? '+' : '') + _fmtNum(m, 1) + '%'; }
 
 function _buildRadar() {
   const { idx, rows } = _readPanel(ABA_PRAD);
@@ -481,13 +491,13 @@ function _buildDiag() {
   rows.forEach(r => {
     const g = n => (idx[n] == null ? '' : r[idx[n]]);
     const okv = okOf(g('VEREDITO'));
-    const exer = _num(g('CHANCE_EXERCICIO')), toque = _num(g('CHANCE_TOQUE'));
+    const exer = _pctVal(g('CHANCE_EXERCICIO')), toque = _pctVal(g('CHANCE_TOQUE'));
     const spotN = _num(g('SPOT')), strikeN = _num(g('STRIKE')), cen = _parseCen(g('CENARIO_30D'));
     const tl = String(g('TENDENCIA') || '').toUpperCase();
     const trendChip = tl ? ("<span class='chip " + (tl === 'ALTA' ? 'green' : tl.indexOf('BAIX') >= 0 ? 'red' : tl.indexOf('REPIQUE') >= 0 ? 'amber' : '') + "'>" + esc(g('TENDENCIA')) + "</span>") : '';
     const verd = okv ? "<span class='verdict ok'>✅ Indicado</span>" : "<span class='verdict no'>⛔ Rejeitado</span>";
     const anchor = "<div class='anchor'><div class='gl'>SPOT · STRIKE · MARGEM</div><div class='av'>"
-      + esc(g('SPOT')) + " · " + esc(g('STRIKE')) + " · " + esc(g('MARGEM')) + "</div></div>";
+      + _moneyVal(g('SPOT')) + " · " + _moneyVal(g('STRIKE')) + " · " + _margemTxt(g('MARGEM')) + "</div></div>";
     const gauges = "<div class='gauges'>" + _ring(exer, _ringColor(exer), 'Exercício', 'fecha abaixo do strike')
       + _ring(toque, _toqueColor(toque), 'Toque', 'encosta no strike') + anchor + "</div>";
     const motivo = g('POR_QUE') ? "<div class='motivo'><span class='ic'>" + (okv ? '✅' : '📉') + "</span> " + esc(g('POR_QUE')) + "</div>" : '';
