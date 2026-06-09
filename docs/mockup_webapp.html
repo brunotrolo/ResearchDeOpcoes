@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor ResearchDeOpcoes — Premium Glass (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --violet:#8B5CF6; --violet2:#A78BFA; --cyan:#22D3EE; --green:#34D399;
+  --amber:#FBBF24; --red:#F87171; --blue:#60A5FA;
+  --text:#EAF0FB; --muted:#97A3BD; --faint:#6B7796;
+  --glass:rgba(255,255,255,.055); --glass2:rgba(255,255,255,.09);
+  --stroke:rgba(255,255,255,.12); --stroke2:rgba(255,255,255,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--text); min-height:100vh;
+  background:
+    radial-gradient(1200px 700px at 12% -8%, rgba(139,92,246,.30), transparent 60%),
+    radial-gradient(1000px 680px at 100% 0%, rgba(34,211,238,.20), transparent 55%),
+    radial-gradient(900px 700px at 50% 120%, rgba(96,165,250,.16), transparent 60%),
+    linear-gradient(160deg,#0A0E1C 0%,#10132C 45%,#1B1740 100%);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 16px 60px}
+.font-display{font-family:'Sora','Inter',sans-serif}
+
+/* ---------- HERO / STATUS ---------- */
+.hero{
+  position:relative;overflow:hidden;border-radius:22px;padding:20px 22px;
+  background:linear-gradient(120deg,rgba(139,92,246,.16),rgba(34,211,238,.10));
+  border:1px solid var(--stroke2);backdrop-filter:blur(18px);
+  box-shadow:0 18px 50px rgba(3,6,20,.5);
+}
+.hero::after{content:"";position:absolute;inset:-2px;background:
+  radial-gradient(400px 120px at 90% 0%,rgba(34,211,238,.25),transparent 70%);pointer-events:none}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:13px}
+.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:22px;
+  background:linear-gradient(135deg,var(--violet),var(--cyan));box-shadow:0 8px 24px rgba(139,92,246,.45)}
+.brand h1{font-size:18px;margin:0;letter-spacing:.2px;font-weight:800}
+.brand .sub{font-size:12.5px;color:var(--muted);margin-top:1px}
+.statuspill{display:inline-flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;
+  font-weight:700;font-size:13.5px;border:1px solid rgba(52,211,153,.4);
+  background:rgba(52,211,153,.12);color:#b8f5dd}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(52,211,153,.7);
+  animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-top:18px}
+.kpi{background:var(--glass);border:1px solid var(--stroke);border-radius:15px;padding:13px 15px}
+.kpi .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.kpi .v{font-size:24px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;font-family:'Sora'}
+.kpi .v.sm{font-size:18px}
+.kpi .d{font-size:12px;color:var(--faint);margin-top:2px}
+.kpi .v.green{color:var(--green)} .kpi .v.cyan{color:var(--cyan)} .kpi .v.amber{color:var(--amber)} .kpi .v.red{color:var(--red)}
+
+/* ---------- TABS ---------- */
+.tabsbar{position:sticky;top:10px;z-index:20;margin:18px 0 16px}
+.tabs{display:flex;gap:5px;padding:6px;border-radius:16px;background:rgba(10,14,28,.55);
+  border:1px solid var(--stroke);backdrop-filter:blur(14px);overflow-x:auto;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.tab{flex:1;min-width:max-content;text-align:center;padding:10px 16px;border-radius:11px;cursor:pointer;
+  font-weight:600;font-size:13.5px;color:var(--muted);white-space:nowrap;transition:.18s;user-select:none}
+.tab:hover{color:var(--text);background:var(--glass)}
+.tab.active{color:#0a0e1c;background:linear-gradient(135deg,var(--violet2),var(--cyan));
+  box-shadow:0 8px 22px rgba(139,92,246,.4);font-weight:700}
+.tab .cnt{display:inline-block;margin-left:6px;font-size:11px;padding:1px 7px;border-radius:999px;
+  background:rgba(255,255,255,.16);font-weight:700}
+.tab.active .cnt{background:rgba(10,14,28,.25)}
+.panel{display:none;animation:fade .35s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- CARDS / SECTIONS ---------- */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin:6px 2px 12px}
+.sec-head h2{font-size:16px;margin:0;font-weight:700;font-family:'Sora'}
+.sec-head .hint{font-size:12.5px;color:var(--muted)}
+.card{background:var(--glass);border:1px solid var(--stroke);border-radius:18px;padding:16px 17px;
+  backdrop-filter:blur(16px);box-shadow:0 12px 34px rgba(3,6,20,.32);margin-bottom:13px;transition:.2s}
+.card:hover{border-color:var(--stroke2);transform:translateY(-2px);box-shadow:0 18px 44px rgba(3,6,20,.45)}
+.card.lead-green{border-left:3px solid var(--green)}
+.card.lead-red{border-left:3px solid var(--red)}
+.card.lead-amber{border-left:3px solid var(--amber)}
+.row1{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+.tk{font-size:18px;font-weight:800;font-family:'Sora';letter-spacing:.3px}
+.op{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tag{margin-left:auto;font-size:12px;font-weight:600;color:var(--muted)}
+
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;
+  font-weight:600;border:1px solid var(--stroke);background:var(--glass2)}
+.chip b{font-weight:800;font-variant-numeric:tabular-nums}
+.chip.green{color:#b8f5dd;border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.12)}
+.chip.red{color:#fecaca;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.12)}
+.chip.amber{color:#fde68a;border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.12)}
+.chip.violet{color:#ddd6fe;border-color:rgba(139,92,246,.4);background:rgba(139,92,246,.15)}
+.chip.cyan{color:#a5f3fc;border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.12)}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+
+/* verdict pill */
+.verdict{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;font-weight:700;font-size:13px}
+.verdict.ok{color:#0a0e1c;background:linear-gradient(135deg,#34D399,#22D3EE);box-shadow:0 6px 18px rgba(52,211,153,.35)}
+.verdict.no{color:#fecaca;background:rgba(248,113,113,.14);border:1px solid rgba(248,113,113,.4)}
+
+/* gauges (rings) */
+.gauges{display:flex;gap:20px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.gauge{display:flex;align-items:center;gap:11px}
+.ring{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;position:relative;flex:0 0 auto}
+.ring::before{content:"";position:absolute;inset:6px;border-radius:50%;background:#0c1020}
+.ring span{position:relative;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;font-family:'Sora'}
+.gauge .gl{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.gauge .gd{font-size:12px;color:var(--faint);margin-top:2px;max-width:150px}
+
+/* scenario range bar */
+.scn{margin-top:15px}
+.scn-h{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:7px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.track{position:relative;height:34px;border-radius:10px;overflow:visible;
+  background:linear-gradient(90deg,rgba(248,113,113,.18),rgba(251,191,36,.12) 45%,rgba(52,211,153,.18));
+  border:1px solid var(--stroke)}
+.track .exer{position:absolute;left:0;top:0;bottom:0;background:repeating-linear-gradient(45deg,rgba(248,113,113,.22),rgba(248,113,113,.22) 6px,rgba(248,113,113,.10) 6px,rgba(248,113,113,.10) 12px);border-right:1px dashed rgba(248,113,113,.6);border-radius:10px 0 0 10px}
+.mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--text);transform:translateX(-1px)}
+.mk.strike{background:var(--violet2);box-shadow:0 0 10px rgba(167,139,250,.8)}
+.mk .lab{position:absolute;top:-19px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10.5px;font-weight:700;color:var(--violet2);background:rgba(10,14,28,.7);padding:1px 6px;border-radius:6px;border:1px solid rgba(167,139,250,.4)}
+.mk.spot{background:var(--cyan)} .mk.spot .lab{color:var(--cyan);border-color:rgba(34,211,238,.4)}
+.scn-f{display:flex;justify-content:space-between;font-size:12.5px;margin-top:9px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.scn-f b{color:var(--text);font-weight:700}
+
+/* expandable "como ler" */
+.por{margin-top:14px;border-top:1px solid var(--stroke);padding-top:12px}
+.por summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--cyan);list-style:none;display:flex;align-items:center;gap:7px}
+.por summary::-webkit-details-marker{display:none}
+.por summary::before{content:"▸";transition:.2s;color:var(--violet2)}
+.por[open] summary::before{transform:rotate(90deg)}
+.por .body{font-size:13.5px;line-height:1.62;color:#cdd6ea;margin-top:10px}
+.por .body b{color:#fff}
+.motivo{font-size:13px;color:#cdd6ea;margin-top:12px;line-height:1.55}
+.motivo .ic{color:var(--violet2)}
+
+.empty{text-align:center;color:var(--muted);padding:34px 12px;font-size:14px}
+
+/* trava block */
+.trava{margin-top:13px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.2);border-radius:13px;padding:12px 14px}
+.trava .leg{display:flex;align-items:center;gap:9px;font-size:13px;margin:3px 0;font-variant-numeric:tabular-nums}
+.trava .sell{color:#fecaca}.trava .buy{color:#bbf7d0}
+.trava .nums{display:flex;gap:16px;margin-top:9px;flex-wrap:wrap}
+.trava .nums div{font-size:12px;color:var(--muted)}
+.trava .nums b{display:block;font-size:15px;color:var(--text);font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+
+/* logs */
+.logbar{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+.lf{padding:7px 13px;border-radius:10px;font-size:12.5px;cursor:pointer;border:1px solid var(--stroke);background:var(--glass);color:var(--muted);font-weight:600}
+.lf.on{color:#0a0e1c;background:linear-gradient(135deg,var(--violet2),var(--cyan))}
+.log{display:grid;grid-template-columns:108px 92px 1fr;gap:12px;padding:11px 14px;border-radius:12px;
+  background:var(--glass);border:1px solid var(--stroke);margin-bottom:7px;font-size:13px;align-items:center}
+.log .t{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.badge{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:999px;text-align:center;letter-spacing:.4px}
+.b-ok{background:rgba(52,211,153,.15);color:#86efac}
+.b-crit{background:rgba(248,113,113,.18);color:#fca5a5}
+.b-warn{background:rgba(251,191,36,.16);color:#fcd34d}
+.b-info{background:rgba(96,165,250,.15);color:#93c5fd}
+
+.foot{text-align:center;color:var(--faint);font-size:12px;margin-top:26px;line-height:1.7}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:11px;cursor:pointer;
+  font-weight:600;font-size:13px;color:var(--text);background:var(--glass2);border:1px solid var(--stroke2)}
+.btn:hover{background:rgba(255,255,255,.14)}
+@media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.log{grid-template-columns:1fr;gap:4px}.log .t,.badge{justify-self:start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-top">
+      <div class="brand">
+        <div class="logo">📡</div>
+        <div>
+          <h1 class="font-display">Motor ResearchDeOpcoes</h1>
+          <div class="sub">Escudo (defesa) · Radar (prêmios) · raio-X do Monte Carlo</div>
+        </div>
+      </div>
+      <span class="statuspill"><span class="dot"></span> NO AR · última execução há 4 min</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Mercado</div><div class="v sm green">Aberto</div><div class="d">Pregão 10:00–16:30</div></div>
+      <div class="kpi"><div class="l">Escudo</div><div class="v red">17</div><div class="d">1 crítico · 10 alerta</div></div>
+      <div class="kpi"><div class="l">Radar</div><div class="v cyan">3</div><div class="d">oportunidades hoje</div></div>
+      <div class="kpi"><div class="l">Diagnóstico</div><div class="v">25</div><div class="d">tickers analisados</div></div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabsbar"><div class="tabs" id="tabs">
+    <div class="tab active" data-p="resumo">Resumo</div>
+    <div class="tab" data-p="escudo">Escudo <span class="cnt">17</span></div>
+    <div class="tab" data-p="radar">Radar <span class="cnt">3</span></div>
+    <div class="tab" data-p="diag">Diagnóstico <span class="cnt">25</span></div>
+    <div class="tab" data-p="logs">Logs</div>
+  </div></div>
+
+  <!-- RESUMO -->
+  <div class="panel active" data-panel="resumo">
+    <div class="sec-head"><h2>Resumo da última execução</h2><span class="hint">08/06 22:38 · <a href="#" style="color:var(--cyan)">GitHub »</a></span></div>
+    <div class="card">
+      <div class="gauges" style="justify-content:space-between">
+        <div class="kpi" style="background:transparent;border:0;padding:0"><div class="l">Status</div><div class="v sm green">OK</div></div>
+        <div class="kpi" style="background:transparent;border:0;padding:0"><div class="l">Duração</div><div class="v sm">12,3s</div></div>
+        <div class="kpi" style="background:transparent;border:0;padding:0"><div class="l">Pernas vendidas</div><div class="v sm">17</div></div>
+        <div class="kpi" style="background:transparent;border:0;padding:0"><div class="l">Ocultadas (baixa)</div><div class="v sm amber">79</div></div>
+      </div>
+      <div class="motivo"><span class="ic">💡</span> O motor rodou às 22:38, defendeu 17 posições (1 crítica: PRIO3) e encontrou 3 oportunidades em USIM5 — tendência de alta confirmada. <b>79 entradas baixistas foram bloqueadas</b> antes de chegar a você.</div>
+    </div>
+    <div class="sec-head" style="margin-top:18px"><h2>Atalhos</h2></div>
+    <div class="card"><div style="display:flex;gap:10px;flex-wrap:wrap">
+      <span class="btn">🔄 Atualizar agora</span>
+      <span class="btn">▶️ Rodar homologação</span>
+      <span class="btn">🧾 Limpar logs</span>
+    </div></div>
+  </div>
+
+  <!-- ESCUDO -->
+  <div class="panel" data-panel="escudo">
+    <div class="sec-head"><h2>🛡️ Posições em atenção</h2><span class="hint">1 crítico · 10 alerta · 6 aviso</span></div>
+
+    <div class="card lead-red">
+      <div class="row1"><span class="tk">PRIO3</span><span class="op">PRIOR660 · PUT vendida</span>
+        <span class="verdict no" style="margin-left:auto">🔴 CRÍTICO</span></div>
+      <div class="chips">
+        <span class="chip red">ITM</span><span class="chip">DTE <b>11d</b></span>
+        <span class="chip">Δ <b>-0,76</b></span><span class="chip amber">γ <b>0,07</b></span>
+        <span class="chip">Recompra <b>2,2×</b></span><span class="chip red">PoE-MC <b>87%</b></span>
+        <span class="chip red">Toque <b>100%</b></span><span class="chip red">P/L <b>-R$ 663</b></span>
+      </div>
+      <div class="motivo"><span class="ic">⚠️</span> <b>Agir agora</b> — recompra já a 2,2× o prêmio e ITM a 11 dias do vencimento. Encerrar ou rolar limita o dano.</div>
+      <details class="por"><summary>Por que este nível?</summary><div class="body">
+        PUT vendida <b>ITM</b>, 11 dias até o vencimento, Δ -0,76, PoE 78%. A recompra custaria 2,2× o prêmio recebido; P/L aberto -123%; gamma alto (o delta acelera). Toque 100% — o preço já está no strike. <b>→ Avaliar encerramento ou rolagem imediata.</b>
+      </div></details>
+    </div>
+
+    <div class="card lead-amber">
+      <div class="row1"><span class="tk">BBAS3</span><span class="op">BBASS233 · PUT vendida</span>
+        <span class="verdict no" style="margin-left:auto;color:#fde68a;background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.4)">🟠 ALERTA</span></div>
+      <div class="chips">
+        <span class="chip red">ITM</span><span class="chip">DTE <b>39d</b></span>
+        <span class="chip">Recompra <b>1,5×</b></span><span class="chip red">PoE-MC <b>99%</b></span>
+        <span class="chip red">Toque <b>100%</b></span><span class="chip red">P/L <b>-R$ 605</b></span>
+      </div>
+      <div class="motivo"><span class="ic">🟠</span> <b>Preparar defesa</b> — risco subindo; deixe a rolagem pronta antes de virar crítico.</div>
+    </div>
+
+    <div class="card lead-amber">
+      <div class="row1"><span class="tk">VALE3</span><span class="op">VALES795 · PUT vendida (com trava)</span>
+        <span class="verdict no" style="margin-left:auto;color:#fde68a;background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.4)">🟠 ALERTA</span></div>
+      <div class="chips">
+        <span class="chip amber">OTM</span><span class="chip">DTE <b>39d</b></span>
+        <span class="chip">Toque <b>80%</b></span><span class="chip">PoE-MC <b>41%</b></span>
+        <span class="chip green">Risco máx <b>R$ 2.330</b></span>
+      </div>
+      <div class="motivo"><span class="ic">🟠</span> OTM com ~80% de chance de tocar o strike antes de vencer (86% se a queda continuar). Risco limitado pela trava. Prepare a defesa.</div>
+    </div>
+  </div>
+
+  <!-- RADAR -->
+  <div class="panel" data-panel="radar">
+    <div class="sec-head"><h2>📡 Oportunidades — Travas de Alta com PUT</h2><span class="hint">Top 3 · risco limitado pela trava</span></div>
+
+    <div class="card lead-green">
+      <div class="row1"><span class="tk">USIM5</span><span class="op">USIMS11 · 30d (17/07)</span>
+        <span class="chip green" style="margin-left:auto">✅ Alta confirmada</span></div>
+      <div class="chips">
+        <span class="chip violet">IV Rank <b>83</b></span><span class="chip cyan">Taxa <b>5,6%</b></span>
+        <span class="chip">Prêmio <b>R$ 0,62</b></span><span class="chip">Dist <b>+3,8%</b></span>
+      </div>
+      <div class="gauges">
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--amber) 44%,rgba(255,255,255,.08) 0)"><span>44%</span></div>
+          <div><div class="gl">Exercício</div><div class="gd">chance de virar exercida</div></div></div>
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--red) 82%,rgba(255,255,255,.08) 0)"><span>82%</span></div>
+          <div><div class="gl">Toque</div><div class="gd">tocar o strike no caminho</div></div></div>
+      </div>
+      <div class="scn">
+        <div class="scn-h"><span>Cenário 30 dias</span><span>R$ 11,46 hoje</span></div>
+        <div class="track">
+          <div class="exer" style="width:38.8%"></div>
+          <div class="mk strike" style="left:38.8%"><span class="lab">strike 11,04</span></div>
+          <div class="mk spot" style="left:46.1%"><span class="lab">spot</span></div>
+        </div>
+        <div class="scn-f"><span>pior 5% <b>R$ 8,81</b> (−23%)</span><span>provável <b>R$ 11,33</b></span><span>melhor 5% <b>R$ 14,56</b> (+27%)</span></div>
+      </div>
+      <div class="trava">
+        <div class="leg sell">🔴 VENDE PUT 11,04 · prêmio R$ 0,62 <span style="color:var(--faint)">USIMS11</span></div>
+        <div class="leg buy">🟢 COMPRA PUT 10,54 · prêmio R$ 0,43 <span style="color:var(--faint)">USIMS105</span></div>
+        <div class="nums">
+          <div>Crédito líq.<b>R$ 0,19</b></div><div>Risco máx<b>R$ 0,31</b></div>
+          <div>Retorno/Risco<b>61%</b></div><div>Break-even<b>R$ 10,85</b></div>
+        </div>
+      </div>
+      <details class="por"><summary>Por que esta ideia?</summary><div class="body">
+        <b>Prêmio rende 5,6%</b> sobre o strike em 30d (≈5,6%/mês). <b>Chance de exercício 44%</b> (PoE-MC na vol. máxima). <b>Tendência de ALTA confirmada</b> no curto, médio e M9/M21 — se a alta seguir, o exercício cai p/ ~33%. Margem: strike +3,8% vs spot. <b>Risco definido pela trava</b> (perda máx R$ 0,31/ação).
+      </div></details>
+    </div>
+
+    <div class="card lead-green">
+      <div class="row1"><span class="tk">USIM5</span><span class="op">USIMS105 · 30d (17/07)</span>
+        <span class="chip green" style="margin-left:auto">✅ Alta confirmada</span></div>
+      <div class="chips">
+        <span class="chip violet">IV Rank <b>83</b></span><span class="chip cyan">Taxa <b>4,1%</b></span>
+        <span class="chip">Prêmio <b>R$ 0,43</b></span><span class="chip">Dist <b>+8,7%</b></span>
+      </div>
+      <div class="gauges">
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--green) 32%,rgba(255,255,255,.08) 0)"><span>32%</span></div>
+          <div><div class="gl">Exercício</div><div class="gd">baixa — confortável</div></div></div>
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--amber) 61%,rgba(255,255,255,.08) 0)"><span>61%</span></div>
+          <div><div class="gl">Toque</div></div></div>
+      </div>
+      <div class="scn">
+        <div class="scn-h"><span>Cenário 30 dias</span><span>R$ 11,46 hoje</span></div>
+        <div class="track">
+          <div class="exer" style="width:30.3%"></div>
+          <div class="mk strike" style="left:30.3%"><span class="lab">strike 10,54</span></div>
+          <div class="mk spot" style="left:46.1%"><span class="lab">spot</span></div>
+        </div>
+        <div class="scn-f"><span>pior 5% <b>R$ 8,81</b></span><span>provável <b>R$ 11,33</b></span><span>melhor 5% <b>R$ 14,56</b></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIAGNÓSTICO -->
+  <div class="panel" data-panel="diag">
+    <div class="sec-head"><h2>🔬 Raio-X do Radar — ticker a ticker</h2><span class="hint">1 indicado · 24 rejeitados · Monte Carlo 100k</span></div>
+
+    <!-- INDICADO -->
+    <div class="card lead-green">
+      <div class="row1"><span class="tk">USIM5</span><span class="op">Usiminas</span>
+        <span class="chip violet">IV 83</span><span class="chip green">ALTA</span>
+        <span class="verdict ok" style="margin-left:auto">✅ Indicado</span></div>
+      <div class="gauges">
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--amber) 44%,rgba(255,255,255,.08) 0)"><span>44%</span></div>
+          <div><div class="gl">Exercício</div><div class="gd">fecha abaixo do strike</div></div></div>
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--red) 82%,rgba(255,255,255,.08) 0)"><span>82%</span></div>
+          <div><div class="gl">Toque</div><div class="gd">encosta no strike</div></div></div>
+        <div style="margin-left:auto;text-align:right">
+          <div class="gl" style="font-size:11.5px;color:var(--muted)">SPOT / STRIKE / MARGEM</div>
+          <div style="font-weight:800;font-family:'Sora';font-size:16px;margin-top:3px">R$ 11,46 · R$ 11,04 · <span style="color:var(--green)">-3,8%</span></div>
+        </div>
+      </div>
+      <div class="scn">
+        <div class="scn-h"><span>Cenário 30 dias</span><span>vol 53%/ano</span></div>
+        <div class="track">
+          <div class="exer" style="width:38.8%"></div>
+          <div class="mk strike" style="left:38.8%"><span class="lab">strike 11,04</span></div>
+          <div class="mk spot" style="left:46.1%"><span class="lab">hoje 11,46</span></div>
+        </div>
+        <div class="scn-f"><span>pior 5% <b>R$ 8,81</b> (−23%)</span><span>provável <b>R$ 11,33</b> (−1%)</span><span>melhor 5% <b>R$ 14,56</b> (+27%)</span></div>
+      </div>
+      <details class="por" open><summary>Como ler estes números</summary><div class="body">
+        De ~100 mil cenários (vol 53%/ano, 30d): <b>44% FECHAM abaixo de R$ 11,04</b> (PUT exercida) e <b>82% TOCAM</b> o strike antes de vencer. O strike está na metade de baixo da faixa provável — só vira exercida se o ativo recuar. <b>Se a alta seguir, exercício cai p/ ~33%.</b>
+      </div></details>
+    </div>
+
+    <!-- REJEITADO: super seguro mas IV baixo -->
+    <div class="card lead-red">
+      <div class="row1"><span class="tk">GGBR4</span><span class="op">Gerdau</span>
+        <span class="chip violet">IV 45</span><span class="chip green">ALTA</span>
+        <span class="verdict no" style="margin-left:auto">⛔ Rejeitado</span></div>
+      <div class="motivo"><span class="ic">📉</span> <b>IV Rank 45 baixo</b> — prêmio magro (quer ≥ 50).</div>
+      <div class="gauges">
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--green) 2%,rgba(255,255,255,.08) 0)"><span>0%</span></div>
+          <div><div class="gl">Exercício</div></div></div>
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--green) 2%,rgba(255,255,255,.08) 0)"><span>0%</span></div>
+          <div><div class="gl">Toque</div></div></div>
+        <div style="margin-left:auto;text-align:right">
+          <div class="gl" style="font-size:11.5px;color:var(--muted)">SPOT / STRIKE / MARGEM</div>
+          <div style="font-weight:800;font-family:'Sora';font-size:16px;margin-top:3px">R$ 24,30 · R$ 17,60 · <span style="color:var(--green)">-27%</span></div>
+        </div>
+      </div>
+      <div class="scn">
+        <div class="scn-h"><span>Cenário 30 dias</span><span>vol 30%/ano</span></div>
+        <div class="track">
+          <div class="exer" style="width:0%"></div>
+          <div class="mk strike" style="left:0%"><span class="lab">strike 17,60</span></div>
+          <div class="mk spot" style="left:53%"><span class="lab">hoje 24,30</span></div>
+        </div>
+        <div class="scn-f"><span>pior 5% <b>R$ 20,58</b> (−15%)</span><span>provável <b>R$ 24,02</b></span><span>melhor 5% <b>R$ 28,04</b> (+15%)</span></div>
+      </div>
+      <details class="por" open><summary>Como ler estes números</summary><div class="body">
+        O strike R$ 17,60 fica <b>abaixo até do pior cenário</b> (R$ 20,58) — ~0% de exercício/toque, <b>PUT super segura</b>. Só não entrou porque o IV Rank 45 é baixo (prêmio magro).
+      </div></details>
+    </div>
+
+    <!-- REJEITADO: baixista -->
+    <div class="card lead-red">
+      <div class="row1"><span class="tk">CSNA3</span><span class="op">CSN</span>
+        <span class="chip violet">IV 56</span><span class="chip red">⛔ BAIXA</span>
+        <span class="verdict no" style="margin-left:auto">⛔ Rejeitado</span></div>
+      <div class="motivo"><span class="ic">🌊</span> <b>Tendência de BAIXA</b> (curto/médio) — vender PUT é apostar contra a maré.</div>
+      <div class="gauges">
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--amber) 48%,rgba(255,255,255,.08) 0)"><span>48%</span></div>
+          <div><div class="gl">Exercício</div></div></div>
+        <div class="gauge"><div class="ring" style="background:conic-gradient(var(--red) 89%,rgba(255,255,255,.08) 0)"><span>89%</span></div>
+          <div><div class="gl">Toque</div></div></div>
+        <div style="margin-left:auto;text-align:right">
+          <div class="gl" style="font-size:11.5px;color:var(--muted)">SPOT / STRIKE / MARGEM</div>
+          <div style="font-weight:800;font-family:'Sora';font-size:16px;margin-top:3px">R$ 6,68 · R$ 6,50 · <span style="color:var(--amber)">-2,7%</span></div>
+        </div>
+      </div>
+      <div class="scn">
+        <div class="scn-h"><span>Cenário 30 dias</span><span>vol 63%/ano</span></div>
+        <div class="track">
+          <div class="exer" style="width:42%"></div>
+          <div class="mk strike" style="left:42%"><span class="lab">strike 6,50</span></div>
+          <div class="mk spot" style="left:45.5%"><span class="lab">hoje 6,68</span></div>
+        </div>
+        <div class="scn-f"><span>pior 5% <b>R$ 4,88</b> (−27%)</span><span>provável <b>R$ 6,57</b></span><span>melhor 5% <b>R$ 8,84</b> (+32%)</span></div>
+      </div>
+      <details class="por"><summary>Como ler estes números</summary><div class="body">
+        De ~100 mil cenários (vol 63%/ano, 30d): 48% fecham abaixo de R$ 6,50 e 89% tocam o strike. <b>Se a baixa seguir, exercício SOBE p/ ~59%.</b> Ficou de fora: tendência não favorável.
+      </div></details>
+    </div>
+  </div>
+
+  <!-- LOGS -->
+  <div class="panel" data-panel="logs">
+    <div class="sec-head"><h2>🧾 Logs recentes</h2><span class="hint">últimos eventos</span></div>
+    <div class="logbar"><span class="lf on">Todos</span><span class="lf">⚠️ Problemas</span><span class="lf">🎲 Monte Carlo</span></div>
+    <div class="log"><span class="t">22:38:18</span><span class="badge b-ok">RUN OK</span><span>Ciclo concluído — Escudo 17, Radar 3, 79 baixistas bloqueadas</span></div>
+    <div class="log"><span class="t">22:38:18</span><span class="badge b-info">MARKET</span><span>modo=clock · janela 10:00–16:30 · mercado aberto</span></div>
+    <div class="log"><span class="t">22:38:36</span><span class="badge b-crit">ESCUDO</span><span>PRIO3 PRIOR660 [CRÍTICO] — recompra 2,2× · ITM · DTE 11d</span></div>
+    <div class="log"><span class="t">22:38:41</span><span class="badge b-ok">RADAR</span><span>3 oportunidades em USIM5 · travas montadas: 3</span></div>
+    <div class="log"><span class="t">22:38:41</span><span class="badge b-warn">RADAR</span><span>Funil — tendência bloqueou 79 entradas baixistas</span></div>
+  </div>
+
+  <div class="foot">
+    Pregão 10h–16h30 (seg–sex) · o vigia avisa por e-mail se o motor parar<br>
+    Gerado pelo motor ResearchDeOpcoes · <b>mockup Premium Glass</b> · não é recomendação de investimento
+  </div>
+
+</div>
+<script>
+  const tabs=document.getElementById('tabs');
+  tabs.addEventListener('click',e=>{
+    const t=e.target.closest('.tab'); if(!t)return;
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelector('.panel[data-panel="'+t.dataset.p+'"]').classList.add('active');
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+  document.querySelectorAll('.lf').forEach(f=>f.addEventListener('click',()=>{
+    document.querySelectorAll('.lf').forEach(x=>x.classList.remove('on'));f.classList.add('on');
+  }));
+</script>
+</body>
+</html>
