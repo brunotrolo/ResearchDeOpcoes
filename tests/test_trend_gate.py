@@ -63,14 +63,33 @@ def test_trend_blocks_por_nivel():
 
 
 # --- 3. Gate end-to-end no scan_scanner ------------------------------------
-def test_gate_bloqueia_repique_em_baixa_por_padrao():
+def test_gate_bloqueia_repique_em_baixa_em_qualquer_modo():
+    """Repique em baixa (curto↑, médio↓, M9M21=+1) → rótulo REPIQUE_BAIXA. O rótulo
+    do card é ABSOLUTO: bloqueado em medio, off E estrito — nunca recomendar alta
+    num ticker baixista, mesmo que o M9M21 esteja em alta."""
     scanner = pd.DataFrame([_scan_full(OPTION_TICKER="VALEX76", TICKER="VALE3", STRIKE="76,00", CLOSE="2,00")])
     dados = pd.DataFrame([_dados(SHORT_TERM_TREND="1", MIDDLE_TERM_TREND="-1", M9_M21_TREND="1")])
-    # Padrão (medio): repique em baixa é BLOQUEADO de fato.
-    assert radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg()) == []
-    # 'off' (legado) só barraria M9<M21 — aqui M9M21=1, então entra (com o rótulo honesto).
-    o = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=config.RadarCfg(trend_gate="off"))[0]
-    assert o["trend_label"] == "REPIQUE_BAIXA"
+    for modo in ("medio", "off", "estrito"):
+        assert radar.scan_scanner(scanner, df_dados_ativos=dados,
+                                  cfg=config.RadarCfg(trend_gate=modo)) == [], modo
+
+
+def test_exigir_alta_nao_deixa_passar_baixista_com_m9m21_alta():
+    """BUG do 1º dia real: com RADAR_EXIGIR_TENDENCIA_ALTA=TRUE (ou TREND_GATE=off),
+    o gate olhava só o M9M21 e IGNORAVA o rótulo. CSNA3 tinha M9M21=+1 mas curto/médio
+    em baixa (rótulo BAIXA) e era recomendada como Trava de ALTA. Agora o rótulo manda."""
+    dados = pd.DataFrame([dict(TICKER="CSNA3", HAS_OPTIONS="TRUE", IV_RANK="56",
+                               M9_M21_TREND="1", MIDDLE_TERM_TREND="-1", SHORT_TERM_TREND="-1")])
+    scanner = pd.DataFrame([_scan_full(OPTION_TICKER="CSNAS650", TICKER="CSNA3", STRIKE="6,50",
+                                       CLOSE="0,69", SPOT="6,68")])
+    for cfg in (config.RadarCfg(require_trend_up=True), config.RadarCfg(trend_gate="off")):
+        opps = radar.scan_scanner(scanner, df_dados_ativos=dados, cfg=cfg)
+        assert opps == [], f"vazou com {cfg.trend_gate}/exigir_alta={cfg.require_trend_up}"
+    # Sanidade: o mesmo ticker, se fosse ALTA confirmada, passaria com exigir_alta.
+    dados_alta = pd.DataFrame([dict(TICKER="CSNA3", HAS_OPTIONS="TRUE", IV_RANK="56",
+                                    M9_M21_TREND="1", MIDDLE_TERM_TREND="1", SHORT_TERM_TREND="1")])
+    assert radar.scan_scanner(scanner, df_dados_ativos=dados_alta,
+                              cfg=config.RadarCfg(require_trend_up=True))
 
 
 def test_gate_audita_bloqueadas_por_rotulo():
