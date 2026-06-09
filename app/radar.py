@@ -193,13 +193,18 @@ def _aplica_gate_tendencia(df, cfg, base_mask, audit):
     mask = base_mask
     bloqueadas, rotulos = 0, {}
     if gate_ativo:
+        level = getattr(cfg, "trend_gate", "medio")
+        blk = df.apply(lambda r: _trend_blocks(r.get("trend_label"),
+                                               r.get("m9m21_trend"), level), axis=1)
+        # ABSOLUTO: rótulo baixista (o do card) sempre bloqueia — mesmo em 'off' e
+        # mesmo com exigir_alta — para nunca recomendar estratégia ALTISTA em ticker
+        # baixista (caso M9M21=+1 mas curto/médio em baixa).
+        blk = blk | df["trend_label"].isin(["BAIXA", "REPIQUE_BAIXA"])
+        # Exigir alta é ADICIONAL (não substitui o multi-horizonte): além de
+        # não-baixista, o M9M21 tem de estar em alta.
         if cfg.require_trend_up:
-            novo = mask & (df["m9m21_trend"] == 1)
-        else:
-            level = getattr(cfg, "trend_gate", "medio")
-            blk = df.apply(lambda r: _trend_blocks(r.get("trend_label"),
-                                                   r.get("m9m21_trend"), level), axis=1)
-            novo = mask & ~blk
+            blk = blk | (df["m9m21_trend"] != 1)
+        novo = mask & ~blk
         caiu = mask & ~novo
         bloqueadas = int(caiu.sum())
         if bloqueadas:
@@ -228,13 +233,18 @@ def _set_trend_cols(df) -> None:
 
 def _rec_bloqueado_tendencia(rec: dict, cfg) -> bool:
     """Decisão FINAL de bloqueio sobre o MESMO rótulo que vai aparecer no card —
-    garante que o que é exibido nunca contradiz o gate (inclusão == display)."""
+    garante que o que é exibido nunca contradiz o gate (inclusão == display).
+
+    O rótulo baixista do card é ABSOLUTO: nunca recomendar estratégia ALTISTA num
+    ticker rotulado BAIXA/REPIQUE, qualquer que seja o nível do gate (até 'off') ou
+    o exigir_alta. Exigir alta é ADICIONAL (M9M21 também tem de estar em alta)."""
     if not (cfg.require_trend_up or cfg.evitar_tendencia_baixa or cfg.usar_trava):
         return False
-    if cfg.require_trend_up:
-        return rec.get("m9m21_trend") != 1
-    return _trend_blocks(rec.get("trend_label"), rec.get("m9m21_trend"),
-                         getattr(cfg, "trend_gate", "medio"))
+    if rec.get("trend_label") in ("BAIXA", "REPIQUE_BAIXA"):
+        return True
+    if cfg.require_trend_up and rec.get("m9m21_trend") != 1:
+        return True
+    return False
 
 
 def _guarda_final_tendencia(records: list, cfg, audit) -> list:
