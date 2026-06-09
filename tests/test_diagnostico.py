@@ -91,7 +91,7 @@ def test_panel_row_formata_colunas_novas():
     g = lambda n: row[h.index(n)]
     assert len(row) == len(h)
     assert g("VEREDITO") == "✅ Indicado" and g("TENDENCIA") == "ALTA" and g("IV_RANK") == 83
-    assert g("SPOT") == 11.46 and g("STRIKE") == 11.04 and g("MARGEM") == "-3,7%"
+    assert g("SPOT") == "R$ 11,46" and g("STRIKE") == "R$ 11,04" and g("MARGEM") == "-3,7%"
     assert g("CHANCE_EXERCICIO") == "31%" and g("CHANCE_TOQUE") == "61%"
     assert g("CENARIO_30D").startswith("Hoje") and g("COMO_LER") == "y"
 
