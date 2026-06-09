@@ -973,3 +973,188 @@ def _to_record(row: pd.Series) -> dict:
         return v
 
     return {k: clean(v) for k, v in row.to_dict().items()}
+
+
+# ===========================================================================
+# RADAR_DIAGNOSTICO — raio-X didático: 1 linha por ticker do DADOS_ATIVOS
+# (veredito + motivo + leitura do Monte Carlo em linguagem simples). Reusa as
+# MESMAS regras do scan (gate de tendência, thresholds) para NÃO divergir.
+# ===========================================================================
+def _fmt_brl(v) -> str:
+    return f"{float(v):.2f}".replace(".", ",") if (v is not None and not _isnan(v)) else "—"
+
+
+def _melhor_candidata(rows, cfg):
+    """Strike representativo p/ a leitura do Monte Carlo: a melhor PUT OTM dentro da
+    janela de DTE (maior taxa de retorno); senão a OTM mais próxima da margem; por
+    fim qualquer PUT. None quando não há linha."""
+    if rows is None or rows.empty:
+        return None
+    janela = rows[(rows["dte"] >= cfg.dte_min) & (rows["dte"] <= cfg.dte_max)]
+    base = janela if not janela.empty else rows
+    otm = base[base["spot_strike_ratio"] >= cfg.spot_strike_ratio_min]
+    if not otm.empty:
+        return otm.sort_values("profit_rate", ascending=False).iloc[0]
+    otm2 = base[base["spot_strike_ratio"] >= 1.0]
+    if not otm2.empty:
+        return otm2.sort_values("spot_strike_ratio").iloc[0]
+    return base.iloc[0]
+
+
+def _frase_mc(strike, dte, poe, toque, poe_tend, cen, cen_dir, indicado) -> str:
+    """Leitura didática do Monte Carlo em uma frase."""
+    if poe is None or _isnan(poe):
+        return "Sem dados suficientes para a simulação."
+    abre = "Vendendo a PUT" if indicado else "Se vendesse a PUT"
+    p = f"{abre} R$ {_fmt_brl(strike)}: ~{poe * 100:.0f}% de virar exercida"
+    if toque is not None and not _isnan(toque):
+        p += f" e ~{toque * 100:.0f}% de tocar o strike antes de vencer"
+    p += "."
+    if poe_tend is not None and not _isnan(poe_tend) and cen_dir:
+        verbo = "cai" if poe_tend < poe else "sobe"
+        p += f" Se a {cen_dir} seguir, exercício {verbo} p/ ~{poe_tend * 100:.0f}%."
+    if cen and cen.get("p05") is not None and dte:
+        p += (f" Em {int(float(dte))}d, provável entre R$ {_fmt_brl(cen.get('p05'))} "
+              f"e R$ {_fmt_brl(cen.get('p95'))}.")
+    return p
+
+
+def _resumo_mc(strike, spot, dte, audit, s, vm, mc, indicado, trend_label) -> dict:
+    """Roda (ou reusa) o Monte Carlo do strike representativo e devolve poe/toque +
+    a frase didática. Para o raio-X, o cenário estressa a BAIXA quando o rótulo é
+    baixista (o risco real do vendedor de PUT); senão segue o M9M21."""
+    m9 = _as_sign(s.get("m9m21_trend"))
+    poe = toque = poe_tend = cen = None
+    cen_dir = "alta" if m9 == 1 else ("baixa" if m9 == -1 else None)
+    if audit:
+        poe, toque = audit.get("poe_mc_gate"), audit.get("toque_gate")
+        poe_tend, cen = audit.get("poe_mc_tendencia"), audit.get("cenarios")
+    elif mc is not None and vm and strike and spot and dte:
+        sg = max([x for x in (vm.get("iv"), vm.get("real")) if x], default=None)
+        if trend_label in ("BAIXA", "REPIQUE_BAIXA") and sg:
+            drift, cen_dir = -1.0 * sg, "baixa"          # estresse de baixa explícito
+        else:
+            drift = _entry_trend_drift(s.get("m9m21_trend"), sg)
+        full = montecarlo.simular_completo(
+            mc, spot, strike, dte, vm.get("iv"), vm.get("real"), tipo="PUT", drift_tendencia=drift)
+        poe, toque = full.get("poe_mc_gate"), full.get("toque_gate")
+        poe_tend, cen = full.get("poe_mc_tendencia"), full.get("cenarios")
+    return {"poe": poe, "toque": toque,
+            "mc_frase": _frase_mc(strike, dte, poe, toque, poe_tend, cen, cen_dir, indicado)}
+
+
+def _motivo_indicado(opp) -> str:
+    partes = ["Prêmio gordo" if (opp.get("iv_rank") or 0) >= 70 else "Prêmio ok (IV mediano)"]
+    if opp.get("dist_pct") is not None:
+        partes.append(f"OTM com margem ({opp['dist_pct']:+.1f}%)")
+    if opp.get("trend_label") == "ALTA":
+        partes.append("alta confirmada (curto/médio/M9-M21)")
+    g = opp.get("poe_mc_gate")
+    if g is not None and not _isnan(g):
+        partes.append(f"chance de exercício ~{g * 100:.0f}%")
+    return " + ".join(partes)
+
+
+def _frase_tendencia(trend_label, m9, cfg) -> str:
+    if trend_label == "BAIXA":
+        return "Tendência de BAIXA (curto/médio) — vender PUT é apostar contra a maré."
+    if trend_label == "REPIQUE_BAIXA":
+        return "Repique em tendência de baixa (subiu no curto, mas cai no médio) — arriscado p/ venda de PUT."
+    if cfg.require_trend_up and _as_sign(m9) != 1:
+        return "Filtro 'exigir alta' ligado e o M9M21 não está em alta — fora por enquanto."
+    return "Tendência não favorável à venda de PUT."
+
+
+def _motivo_rejeicao(tk, s, trend_label, ivr, rows, allowed, cfg, poe_max, mc, vm):
+    """Caminha o funil por IMPORTÂNCIA e devolve (motivo didático, linha candidata
+    p/ o Monte Carlo). A candidata pode ser None quando não há opção a simular."""
+    if allowed is not None and tk not in allowed:
+        return "Fora do universo: sem opções listadas (HAS_OPTIONS = FALSE).", None
+    if rows is None or rows.empty:
+        return "Sem PUTs no scanner agora (vencimento/série não baixados).", None
+    if _rec_bloqueado_tendencia({"trend_label": trend_label, "m9m21_trend": s.get("m9m21_trend")}, cfg):
+        return _frase_tendencia(trend_label, s.get("m9m21_trend"), cfg), _melhor_candidata(rows, cfg)
+    if ivr is not None and not _isnan(ivr) and ivr < cfg.iv_rank_min:
+        return f"IV Rank {ivr:.0f} baixo — prêmio magro (quer ≥ {cfg.iv_rank_min:.0f}).", _melhor_candidata(rows, cfg)
+    janela = rows[(rows["dte"] >= cfg.dte_min) & (rows["dte"] <= cfg.dte_max)]
+    if janela.empty:
+        return f"Sem vencimento na janela de {cfg.dte_min}-{cfg.dte_max} dias.", _melhor_candidata(rows, cfg)
+    otm = janela[janela["spot_strike_ratio"] >= cfg.spot_strike_ratio_min]
+    if otm.empty:
+        return (f"Sem strike OTM com margem ≥ {(cfg.spot_strike_ratio_min - 1) * 100:.0f}% "
+                "(strikes muito no dinheiro)."), _melhor_candidata(rows, cfg)
+    liq = otm[otm["volume_fin"].fillna(0) >= cfg.min_option_volume_fin]
+    if liq.empty:
+        return "Liquidez baixa (volume financeiro da opção abaixo do piso).", _melhor_candidata(rows, cfg)
+    cand = liq.sort_values("profit_rate", ascending=False).iloc[0]
+    poe = None
+    if mc is not None and vm:
+        poe = montecarlo.poe_resumo(mc, cand["spot"], cand["strike"], cand["dte"],
+                                    vm.get("iv"), vm.get("real")).get("poe_mc_gate")
+    if poe is None or _isnan(poe):
+        poe = cand.get("poe")
+    if poe_max is not None and poe is not None and not _isnan(poe) and poe > poe_max:
+        return f"Risco de exercício alto: ~{poe * 100:.0f}% (acima do teto {poe_max * 100:.0f}%).", cand
+    return "Não passou no conjunto de filtros do Radar (margem × risco).", cand
+
+
+def diagnosticar_universo(df_dados, df_scanner, cfg=None, mc=None, vol_map=None,
+                          poe_max=None, opps=None) -> list[dict]:
+    """Raio-X didático: 1 dict por ticker do DADOS_ATIVOS, com veredito
+    (INDICADO/REJEITADO), motivo e leitura do Monte Carlo. Indicados primeiro,
+    depois por chance de exercício (mais seguro no topo)."""
+    cfg = cfg or config.RADAR
+    if df_dados is None or df_dados.empty:
+        return []
+    sig = _underlying_signals(df_dados)
+    iv_rank = _iv_rank_map(df_dados)
+    allowed = _whitelist(df_dados, cfg.require_has_options) if cfg.use_dados_ativos_whitelist else None
+
+    porticker: dict = {}
+    if df_scanner is not None and not df_scanner.empty:
+        dfn = _normalize_scanner(df_scanner)
+        dfn = dfn[dfn["eh_put"].astype(bool)].copy()
+        dfn["_tk"] = dfn["ticker"].map(lambda t: str(t).strip().upper())
+        for tk, grp in dfn.groupby("_tk"):
+            porticker[tk] = grp
+
+    opp_by_ticker: dict = {}
+    for o in (opps or []):
+        opp_by_ticker.setdefault(str(o.get("ticker", "")).strip().upper(), o)
+
+    out, seen = [], set()
+    for t in frames.raw(df_dados, "dados_ativos", "ticker"):
+        tk = str(t).strip().upper()
+        if not tk or tk in seen:
+            continue
+        seen.add(tk)
+        s = sig.get(tk, {})
+        trend_label = trend_score_label(s.get("short_term_trend"), s.get("middle_term_trend"),
+                                        s.get("m9m21_trend"))["trend_label"]
+        d = {"ticker": tk, "trend_label": trend_label, "iv_rank": iv_rank.get(tk)}
+        vm = (vol_map or {}).get(tk, {})
+        opp = opp_by_ticker.get(tk)
+        if opp is not None:
+            audit = opp.get("mc_audit") or {
+                "poe_mc_gate": opp.get("poe_mc_gate"), "toque_gate": opp.get("toque_gate"),
+                "poe_mc_tendencia": opp.get("poe_mc_tendencia"), "cenarios": None}
+            d["veredito"] = "INDICADO"
+            d["motivo"] = _motivo_indicado(opp)
+            d.update(_resumo_mc(opp.get("strike"), opp.get("spot"), opp.get("dte"),
+                                audit, s, vm, mc, True, trend_label))
+        else:
+            motivo, cand = _motivo_rejeicao(tk, s, trend_label, iv_rank.get(tk),
+                                            porticker.get(tk), allowed, cfg, poe_max, mc, vm)
+            d["veredito"] = "REJEITADO"
+            d["motivo"] = motivo
+            if cand is not None:
+                d.update(_resumo_mc(cand["strike"], cand["spot"], cand["dte"], None, s, vm, mc, False, trend_label))
+            else:
+                d.update({"poe": None, "toque": None, "mc_frase": "Sem opção listada para simular."})
+        out.append(d)
+
+    def _ordem(r):
+        p = r.get("poe")
+        return (r["veredito"] != "INDICADO", p if (p is not None and not _isnan(p)) else 1.0)
+    out.sort(key=_ordem)
+    return out
