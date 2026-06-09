@@ -133,3 +133,35 @@ def test_segundo_porteiro_remove_por_poe_de_tendencia():
                               mc=sim, vol_map=vol_map, poe_max=0.30, audit=audit)
     assert opps == []
     assert audit["tendencia_poe_bloqueou"] == 1
+
+
+# --- Regressão: "Trava de ALTA num ticker exibido como BAIXA" ---------------
+def _luc(o, k, c, m9="1"):
+    return dict(OPTION_TICKER=o, TICKER="CSNA3", CATEGORY="PUT", EXPIRY="46.220,00", DTE_CALENDAR="30",
+                STRIKE=k, SPOT="6,68", SPOT_STRIKE_RATIO="1,03", IV_RANK="56", IV_CURRENT="40",
+                VOLUME_FIN="144.953,00", PROFIT_RATE_IF_EXERCISED=c, M9M21_TREND=m9, SECTOR="", COMPANY_NAME="")
+
+
+def test_scan_lucros_nao_vaza_baixa_quando_m9m21_diverge():
+    """BUG real: a aba de lucros dizia M9M21=ALTA (1) e o DADOS_ATIVOS dizia BAIXA
+    (-1). O gate usava o M9M21 da lucros e DEIXAVA PASSAR; o card recomputava pelo
+    DADOS_ATIVOS e mostrava ⛔ BAIXA. Agora o M9M21 do gate vem do DADOS_ATIVOS
+    (mesma fonte do rótulo) e a guarda final remove de vez."""
+    dados = pd.DataFrame([dict(TICKER="CSNA3", HAS_OPTIONS="TRUE", IV_RANK="56",
+                               M9_M21_TREND="-1", MIDDLE_TERM_TREND="0", SHORT_TERM_TREND="-1")])
+    lucros = pd.DataFrame([_luc("CSNAS650", "6,50", "10,6"), _luc("CSNAS640", "6,40", "10,0")])
+    audit: dict = {}
+    opps = radar.scan(lucros, df_dados_ativos=dados, cfg=config.RADAR, audit=audit)
+    assert opps == []                                            # nada baixista vaza
+    assert audit["tendencia_bloqueadas"] >= 2 and audit["tendencia_rotulos"].get("BAIXA")
+
+
+def test_guarda_final_usa_o_rotulo_do_card():
+    """A guarda final decide pelo MESMO trend_label que aparece no card: BAIXA e
+    REPIQUE_BAIXA nunca saem (medio); ALTA sai. Desligadas as travas altistas, não age."""
+    cfg = config.RadarCfg()
+    assert radar._rec_bloqueado_tendencia({"trend_label": "BAIXA", "m9m21_trend": 1}, cfg) is True
+    assert radar._rec_bloqueado_tendencia({"trend_label": "REPIQUE_BAIXA", "m9m21_trend": 1}, cfg) is True
+    assert radar._rec_bloqueado_tendencia({"trend_label": "ALTA", "m9m21_trend": 1}, cfg) is False
+    cfg_off = config.RadarCfg(evitar_tendencia_baixa=False, usar_trava=False)
+    assert radar._rec_bloqueado_tendencia({"trend_label": "BAIXA", "m9m21_trend": -1}, cfg_off) is False

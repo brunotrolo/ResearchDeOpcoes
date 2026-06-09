@@ -226,6 +226,35 @@ def _set_trend_cols(df) -> None:
     df["trend_score"] = [d["trend_score"] for d in tl]
 
 
+def _rec_bloqueado_tendencia(rec: dict, cfg) -> bool:
+    """Decisão FINAL de bloqueio sobre o MESMO rótulo que vai aparecer no card —
+    garante que o que é exibido nunca contradiz o gate (inclusão == display)."""
+    if not (cfg.require_trend_up or cfg.evitar_tendencia_baixa or cfg.usar_trava):
+        return False
+    if cfg.require_trend_up:
+        return rec.get("m9m21_trend") != 1
+    return _trend_blocks(rec.get("trend_label"), rec.get("m9m21_trend"),
+                         getattr(cfg, "trend_gate", "medio"))
+
+
+def _guarda_final_tendencia(records: list, cfg, audit) -> list:
+    """Rede de segurança: descarta QUALQUER oportunidade cujo RÓTULO FINAL (o do
+    card) seja baixista. Fecha divergências entre o gate (sobre o df) e o rótulo
+    recomputado no rec — ex.: M9M21 da aba de lucros ≠ do DADOS_ATIVOS — para nunca
+    recomendar 'Trava de ALTA' num ticker exibido como BAIXA."""
+    mantidos, cortados = [], []
+    for r in records:
+        (cortados if _rec_bloqueado_tendencia(r, cfg) else mantidos).append(r)
+    if cortados and audit is not None:
+        audit["tendencia_bloqueadas"] = audit.get("tendencia_bloqueadas", 0) + len(cortados)
+        rot = dict(audit.get("tendencia_rotulos") or {})
+        for r in cortados:
+            lab = r.get("trend_label") or "?"
+            rot[lab] = rot.get(lab, 0) + 1
+        audit["tendencia_rotulos"] = rot
+    return mantidos
+
+
 def _motivo_radar(rec: dict) -> str:
     """Texto curto explicando POR QUE o ativo foi recomendado."""
     partes = []
@@ -690,7 +719,10 @@ def scan_scanner(
                 rec["trava_motivo"] = _porque_sem_trava(rec, chain, cfg.trava_largura_pct)
         rec["analise"] = analise(rec)
 
+    # Rede de segurança: o rótulo do card é a palavra final — nada baixista passa.
+    records = _guarda_final_tendencia(records, cfg, audit)
     if audit is not None:
+        audit["final"] = len(records)
         audit["premios_reais"] = len(records)
         audit["premios_estimados"] = 0
         audit["travas_montadas"] = sum(1 for r in records if r.get("trava"))
@@ -740,11 +772,18 @@ def scan(
         chain.setdefault(t, legs)
 
     # Sinais do ativo-mãe (curto/médio + score) p/ o gate de tendência multi-horizonte.
-    # O M9M21 já vem da própria aba de lucros (_normalize).
     sig = _underlying_signals(df_dados_ativos)
     for campo in ("short_term_trend", "middle_term_trend", "oplab_score"):
         df[campo] = df["ticker"].map(
             lambda t, c=campo: (sig.get(str(t).strip().upper()) or {}).get(c))
+    # M9M21 CANÔNICO = DADOS_ATIVOS (a MESMA fonte do rótulo exibido). Antes o gate
+    # usava o M9M21 da aba de lucros, que podia divergir do DADOS_ATIVOS e deixar
+    # passar um ticker que o card mostra como BAIXA. Cai p/ o da aba de lucros só
+    # quando o ativo não está no DADOS_ATIVOS.
+    def _m9_canon(r):
+        v = (sig.get(str(r["ticker"]).strip().upper()) or {}).get("m9m21_trend")
+        return v if v is not None else r.get("m9m21_trend")
+    df["m9m21_trend"] = df.apply(_m9_canon, axis=1)
     _set_trend_cols(df)
 
     # Máscaras cumulativas, para registrar o funil estágio a estágio.
@@ -876,7 +915,10 @@ def scan(
                 rec["trava_motivo"] = _porque_sem_trava(rec, chain, cfg.trava_largura_pct)
         rec["analise"] = analise(rec)
 
+    # Rede de segurança: o rótulo do card é a palavra final — nada baixista passa.
+    records = _guarda_final_tendencia(records, cfg, audit)
     if audit is not None:
+        audit["final"] = len(records)
         audit["scanner_opcoes"] = len(prem_map)
         audit["scanner_puts_na_cadeia"] = sum(len(v) for v in chain.values())
         audit["premios_reais"] = sum(1 for r in records if not r.get("premio_estimado"))
